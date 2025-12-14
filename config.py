@@ -155,10 +155,225 @@ def _tuoitre_config() -> SiteConfig:
     )
 
 
+def _default_site_config(
+    key: str,
+    base_url: str,
+    *,
+    article_name: str | None = None,
+) -> SiteConfig:
+    """
+    Cấu hình mặc định dùng chung cho các trang báo có cấu trúc đơn giản.
+
+    Nếu cần tuỳ biến thêm (prefix category, selector description, ...), tạo hàm
+    riêng thay vì dùng helper này.
+    """
+
+    return SiteConfig(
+        key=key,
+        base_url=base_url,
+        home_path="/",
+        article_name=article_name or key,
+        deny_exact_paths=("/",),
+    )
+
+
+def _genk_config() -> SiteConfig:
+    return _default_site_config("genk", "https://genk.vn")
+
+
+def _kenh14_config() -> SiteConfig:
+    return _default_site_config("kenh14", "https://kenh14.vn")
+
+
+def _mattran_config() -> SiteConfig:
+    return _default_site_config("mattran", "https://mattran.org.vn")
+
+
+def _nguoiquansat_config() -> SiteConfig:
+    return _default_site_config("nguoiquansat", "https://nguoiquansat.vn")
+
+
+def _tinnhanhchungkhoan_config() -> SiteConfig:
+    return _default_site_config(
+        "tinnhanhchungkhoan",
+        "https://www.tinnhanhchungkhoan.vn",
+    )
+
+
+def _giadinh_suckhoedoisong_config() -> SiteConfig:
+    return _default_site_config(
+        "giadinh_suckhoedoisong",
+        "https://giadinh.suckhoedoisong.vn",
+    )
+
+
+def _nhandan_config() -> SiteConfig:
+    return _default_site_config("nhandan", "https://nhandan.vn")
+
+
+def _vietbao_config() -> SiteConfig:
+    return _default_site_config("vietbao", "https://vietbao.vn")
+
+
+def _anninhthudo_config() -> SiteConfig:
+    return _default_site_config("anninhthudo", "https://www.anninhthudo.vn")
+
+
+def _cafebiz_config() -> SiteConfig:
+    return _default_site_config("cafebiz", "https://cafebiz.vn")
+
+
+def _daibieunhandan_config() -> SiteConfig:
+    return _default_site_config("daibieunhandan", "https://daibieunhandan.vn")
+
+
+def _congly_config() -> SiteConfig:
+    return _default_site_config("congly", "https://congly.vn")
+
+
+def _nongnghiepmoitruong_config() -> SiteConfig:
+    return SiteConfig(
+        key="nongnghiepmoitruong",
+        base_url="https://nongnghiepmoitruong.vn",
+        home_path="/",
+        article_name="nongnghiepmoitruong",
+        deny_exact_paths=("/",),
+        description_selectors=(
+            "h2.main-intro.detail-intro",
+        ),
+    )
+
+
+def _cafef_config() -> SiteConfig:
+    return _default_site_config("cafef", "https://cafef.vn")
+
+
+def _vtv_config() -> SiteConfig:
+    return _default_site_config("vtv", "https://vtv.vn")
+
+
+def _baolaocai_config() -> SiteConfig:
+    return _default_site_config("baolaocai", "https://baolaocai.vn")
+
+
+def _vietnamnet_config() -> SiteConfig:
+    return _default_site_config("vietnamnet", "https://vietnamnet.vn")
+
+
+def _vietnamplus_config() -> SiteConfig:
+    return _default_site_config("vietnamplus", "https://www.vietnamplus.vn")
+
+
+def _baoxaydung_config() -> SiteConfig:
+    return _default_site_config("baoxaydung", "https://baoxaydung.vn")
+
+
+def _baodautu_config() -> SiteConfig:
+    return _default_site_config("baodautu", "https://baodautu.vn")
+
+
+def _soha_config() -> SiteConfig:
+    return _default_site_config("soha", "https://soha.vn")
+
+
+def _vneconomy_config() -> SiteConfig:
+    return SiteConfig(
+        key="vneconomy",
+        base_url="https://vneconomy.vn",
+        home_path="/",
+        article_name="vneconomy",
+        deny_exact_paths=("/",),
+        description_selectors=(
+            "div.news-sapo",
+            "[data-field='sapo']",
+            "div.news-sapo[data-field='sapo'] p",
+            "div.news-sapo p",
+            "[data-field='sapo'] p",
+            "div.news-sapo[data-field='sapo'] p b",
+        ),
+    )
+
+
+def _baophapluat_config() -> SiteConfig:
+    return _default_site_config("baophapluat", "https://baophapluat.vn")
+
+
+def _baodongnai_config() -> SiteConfig:
+    return SiteConfig(
+        key="baodongnai",
+        base_url="https://baodongnai.com.vn",
+        home_path="/",
+        article_name="baodongnai",
+        deny_exact_paths=("/",),
+        description_selectors=(
+            "div#content.content-detail .td-post-content > p",
+            "div#content.content-detail p",
+        ),
+    )
+
+
+def _bnews_config() -> SiteConfig:
+    return _default_site_config("bnews", "https://bnews.vn")
+
+
+def _dantri_config() -> SiteConfig:
+    return SiteConfig(
+        key="dantri",
+        base_url="https://dantri.com.vn",
+        home_path="/",
+        article_name="dantri",
+        deny_exact_paths=("/",),
+        description_selectors=(
+            ".singular-sapo",
+            ".singular-sapo h2",
+            "meta[name='description']",
+        ),
+    )
+
+
+def _baocamau_config() -> SiteConfig:
+    return _default_site_config("baocamau", "https://baocamau.vn")
+
+
+def _baodongkhoi_config() -> SiteConfig:
+    return _default_site_config("baodongkhoi", "https://baodongkhoi.vn")
+
+
 def get_supported_sites() -> Dict[str, SiteConfig]:
     """Trả về dict {site_key: SiteConfig} cho tất cả các trang được hỗ trợ."""
     sites: Dict[str, SiteConfig] = {}
-    for cfg in (_vnexpress_config(), _tuoitre_config()):
+    for cfg in (
+        _vnexpress_config(),
+        _tuoitre_config(),
+        _genk_config(),
+        _kenh14_config(),
+        _mattran_config(),
+        _nguoiquansat_config(),
+        _tinnhanhchungkhoan_config(),
+        _giadinh_suckhoedoisong_config(),
+        _nhandan_config(),
+        _vietbao_config(),
+        _anninhthudo_config(),
+        _cafebiz_config(),
+        _daibieunhandan_config(),
+        _congly_config(),
+        _nongnghiepmoitruong_config(),
+        _cafef_config(),
+        _vtv_config(),
+        _baolaocai_config(),
+        _vietnamnet_config(),
+        _vietnamplus_config(),
+        _baoxaydung_config(),
+        _baodautu_config(),
+        _soha_config(),
+        _vneconomy_config(),
+        _baophapluat_config(),
+        _baodongnai_config(),
+        _bnews_config(),
+        _dantri_config(),
+        _baocamau_config(),
+        _baodongkhoi_config(),
+    ):
         sites[cfg.key] = cfg
     return sites
 

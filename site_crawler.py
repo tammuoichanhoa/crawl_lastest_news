@@ -120,7 +120,6 @@ def _extract_main_content(soup: BeautifulSoup) -> str:
     - ưu tiên các selector thường gặp ở VNExpress/Tuổi Trẻ,
     - fallback: <article>, sau đó toàn bộ <body>.
     """
-    # Một số selector phổ biến
     candidates = [
         "article.fck_detail",
         "article#main-detail-body",
@@ -165,7 +164,6 @@ def _extract_publish_date(soup: BeautifulSoup) -> Optional[datetime]:
     if not value:
         return None
     try:
-        # Xử lý chuỗi kết thúc bằng 'Z'
         if value.endswith("Z"):
             value = value[:-1] + "+00:00"
         return datetime.fromisoformat(value)
@@ -284,21 +282,10 @@ class NewsSiteCrawler:
             "failed": self._failed,
         }
 
-    # ------------------------------------------------------------------ #
-    # Public API
-    # ------------------------------------------------------------------ #
     def crawl(self, *, max_articles: Optional[int] = None) -> None:
-        """
-        Quy trình:
-        1. Lấy danh sách category từ trang chủ.
-        2. Với mỗi category → lấy danh sách URL bài mới.
-        3. Với mỗi bài → tải HTML, bóc tách thông tin, lưu DB.
-        """
         LOGGER.info("=== Crawling site %s (%s) ===", self.site.key, self.site.base_url)
         categories = self._discover_categories()
-        LOGGER.info(
-            "Found %s categories for %s", len(categories), self.site.key
-        )
+        LOGGER.info("Found %s categories for %s", len(categories), self.site.key)
 
         for category in categories:
             LOGGER.info("Processing category %s (%s)", category.slug, category.url)
@@ -324,13 +311,10 @@ class NewsSiteCrawler:
                     parsed = self._parse_article(html, url=url, category=category)
                     self._save_article(parsed)
                     self._inserted += 1
-                except Exception as exc:  # pylint: disable=broad-except
+                except Exception as exc:
                     self._failed += 1
                     LOGGER.exception("Failed to crawl article %s: %s", url, exc)
 
-    # ------------------------------------------------------------------ #
-    # Category & article list discovery
-    # ------------------------------------------------------------------ #
     def _discover_categories(self) -> List[CategoryInfo]:
         home_url = urljoin(self.site.base_url, self.site.home_path or "/")
         try:
@@ -360,7 +344,6 @@ class NewsSiteCrawler:
             if path in self.site.deny_exact_paths:
                 continue
 
-            # Chỉ giữ path 1 cấp hoặc 2 cấp; lấy segment đầu tiên làm slug
             slug = _slug_from_path(path)
             category_path = self.site.category_path_pattern.format(slug=slug)
 
@@ -377,7 +360,6 @@ class NewsSiteCrawler:
             ):
                 continue
 
-            # Canonical URL cho category
             canonical = urlunparse(
                 parsed._replace(path=category_path, query="", fragment="")
             )
@@ -392,9 +374,7 @@ class NewsSiteCrawler:
         try:
             html = self.client.get(category.url)
         except requests.RequestException as exc:
-            LOGGER.warning(
-                "Failed to fetch category page %s: %s", category.url, exc
-            )
+            LOGGER.warning("Failed to fetch category page %s: %s", category.url, exc)
             return []
         soup = BeautifulSoup(html, "html.parser")
 
@@ -410,14 +390,12 @@ class NewsSiteCrawler:
             seen.add(normalized)
             article_urls.append(normalized)
 
-        # 1. Nếu có selector cấu hình, ưu tiên dùng trước
         if self.site.article_link_selector:
             for node in soup.select(self.site.article_link_selector):
                 href = node.get("href")
                 if href:
                     _register(href)
 
-        # 2. Heuristic chung: trong <article> hoặc các thẻ title
         if not article_urls:
             for node in soup.find_all("article"):
                 anchor = node.find("a", href=True)
@@ -431,7 +409,6 @@ class NewsSiteCrawler:
                     if href:
                         _register(href)
 
-        # 3. Fallback cuối: mọi <a> nội bộ có path đủ dài (tránh menu)
         if not article_urls:
             for anchor in soup.find_all("a", href=True):
                 href = anchor["href"]
@@ -451,9 +428,6 @@ class NewsSiteCrawler:
 
         return article_urls
 
-    # ------------------------------------------------------------------ #
-    # Article detail parsing & persistence
-    # ------------------------------------------------------------------ #
     def _parse_article(self, html: str, *, url: str, category: CategoryInfo) -> ParsedArticle:
         soup = BeautifulSoup(html, "html.parser")
 
@@ -547,7 +521,7 @@ class NewsSiteCrawler:
             article_name=self.site.resolved_article_name(),
         )
         self.session.add(article)
-        self.session.flush()  # để có article.id cho images/videos
+        self.session.flush()
 
         for idx, img_url in enumerate(parsed.images, start=1):
             article.images.append(
@@ -581,5 +555,5 @@ class NewsSiteCrawler:
         if not cleaned:
             return None
         concatenated = ", ".join(cleaned)
-        # Cột Article.tags dài 500 ký tự → cắt bớt nếu cần.
         return concatenated[:500]
+

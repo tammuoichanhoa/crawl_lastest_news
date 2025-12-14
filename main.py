@@ -18,7 +18,7 @@ if __name__ == "__main__" and (__package__ is None or __package__ == ""):
     __package__ = "crawl_lastest_news"
 
 from .config import iter_site_configs, list_site_keys
-from .crawler import NewsSiteCrawler
+from .site_crawler import NewsSiteCrawler
 from .db.session import session_scope
 
 
