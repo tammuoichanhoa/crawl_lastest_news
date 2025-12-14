@@ -1,0 +1,14 @@
+-- Chuyển quyền sở hữu database cho crawl
+ALTER DATABASE lastest_news OWNER TO crawl;
+
+-- Kết nối vào database đó
+\c lastest_news;
+
+-- Gán quyền 
+GRANT ALL PRIVILEGES ON SCHEMA public TO crawl;
+ALTER SCHEMA public OWNER TO crawl;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO crawl;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO crawl;
+GRANT ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA public TO crawl;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO crawl;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO crawl;

@@ -1,0 +1,6 @@
+requests
+beautifulsoup4
+SQLAlchemy
+psycopg2-binary
+python-dotenv
+uuid-utils
