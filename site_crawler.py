@@ -507,18 +507,28 @@ class NewsSiteCrawler:
             return
 
         tags_str = self._join_tags(parsed.tags)
+        title = self._trim_to_column_length(parsed.title, Article.title)
+        category_id = self._trim_to_column_length(parsed.category_id, Article.category_id)
+        category_name = self._trim_to_column_length(
+            parsed.category_name, Article.category_name
+        )
+        tags_str = self._trim_to_column_length(tags_str, Article.tags)
+        url = self._trim_to_column_length(parsed.url, Article.url)
+        article_name = self._trim_to_column_length(
+            self.site.resolved_article_name(), Article.article_name
+        )
 
         article = Article(
-            title=parsed.title,
+            title=title,
             description=parsed.description,
             content=parsed.content,
-            category_id=parsed.category_id,
-            category_name=parsed.category_name,
+            category_id=category_id,
+            category_name=category_name,
             comments=None,
             tags=tags_str,
-            url=parsed.url,
+            url=url,
             publish_date=parsed.publish_date,
-            article_name=self.site.resolved_article_name(),
+            article_name=article_name,
         )
         self.session.add(article)
         self.session.flush()
@@ -557,3 +567,18 @@ class NewsSiteCrawler:
         concatenated = ", ".join(cleaned)
         return concatenated[:500]
 
+    @staticmethod
+    def _trim_to_column_length(value: Optional[str], column_attr) -> Optional[str]:
+        if value is None:
+            return None
+        column = column_attr.property.columns[0]
+        max_length = getattr(column.type, "length", None)
+        if not max_length or len(value) <= max_length:
+            return value
+        LOGGER.debug(
+            "Truncating value for %s from %d to %d characters",
+            column.key,
+            len(value),
+            max_length,
+        )
+        return value[:max_length]
