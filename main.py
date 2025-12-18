@@ -35,6 +35,7 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
             f"(mặc định: tất cả = {', '.join(list_site_keys())})"
         ),
     )
+    # postgresql+psycopg2://crawl:crawl@localhost:15432/lastest_news
     parser.add_argument(
         "--database-url",
         dest="database_url",

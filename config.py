@@ -12,7 +12,7 @@ Bạn có thể thêm/sửa cấu hình cho trang mới mà không phải sửa 
 """
 
 from dataclasses import dataclass, field
-from typing import Dict, Iterable, List, Tuple
+from typing import Any, Dict, Iterable, List, Tuple
 
 
 @dataclass(slots=True)
@@ -52,6 +52,18 @@ class SiteConfig:
 
     # Các selector ưu tiên để lấy description/sapo của bài viết (nếu rỗng sẽ dùng heuristic chung).
     description_selectors: Tuple[str, ...] = field(default_factory=tuple)
+
+    # Chỉ chấp nhận các locale/language cụ thể (ví dụ: ("vi", "vi-vn")).
+    allowed_locales: Tuple[str, ...] = field(default_factory=tuple)
+
+    # Chỉ chấp nhận các host bài viết có hậu tố (suffix) nhất định, ví dụ: (".vn",)
+    allowed_article_host_suffixes: Tuple[str, ...] = field(default_factory=tuple)
+
+    # Chỉ lấy link bài viết có đuôi (suffix) cụ thể, ví dụ: (".html",)
+    allowed_article_url_suffixes: Tuple[str, ...] = field(default_factory=tuple)
+
+    # Loại bỏ các bài viết có path bắt đầu bằng những prefix này.
+    deny_article_prefixes: Tuple[str, ...] = field(default_factory=tuple)
 
     def resolved_article_name(self) -> str:
         """Giá trị cuối cùng để ghi vào Article.article_name."""
@@ -105,6 +117,7 @@ def _vnexpress_config() -> SiteConfig:
         deny_exact_paths=(
             "/",
         ),
+        allowed_article_url_suffixes=(".html",),
         article_link_selector="article.item-news a[href]",
     )
 
@@ -160,6 +173,7 @@ def _default_site_config(
     base_url: str,
     *,
     article_name: str | None = None,
+    **overrides: Any,
 ) -> SiteConfig:
     """
     Cấu hình mặc định dùng chung cho các trang báo có cấu trúc đơn giản.
@@ -174,6 +188,7 @@ def _default_site_config(
         home_path="/",
         article_name=article_name or key,
         deny_exact_paths=("/",),
+        **overrides,
     )
 
 
@@ -208,11 +223,84 @@ def _giadinh_suckhoedoisong_config() -> SiteConfig:
 
 
 def _nhandan_config() -> SiteConfig:
-    return _default_site_config("nhandan", "https://nhandan.vn")
+    return SiteConfig(
+        key="nhandan",
+        base_url="https://nhandan.vn",
+        home_path="/",
+        article_name="nhandan",
+        deny_exact_paths=("/",),
+        deny_category_prefixes=(
+            "/mua-bao.html",
+            "/tin-moi.html",
+            "/dia-phuong.html",
+            "/chinhtri",
+            "/binh-luan-phe-phan",
+            "/xay-dung-dang",
+            "/chungkhoan",
+            "/thong-tin-hang-hoa",
+            "/bhxh-va-cuoc-song",
+            "/nguoi-tot-viec-tot",
+            "/phapluat",
+            "/binh-luan-quoc-te",
+            "/chau-phi",
+            "/trung-dong",
+            "/chau-a-tbd",
+            "/goc-tu-van",
+            "/khoahoc-congnghe",
+            "/phong-chong-toi-pham-cong-nghe-cao-2025",
+            "/moi-truong",
+            "/duong-day-nong",
+            "/dieu-tra-qua-thu-ban-doc",
+            "/factcheck",
+            "/tri-thuc-chuyen-sau.html",
+            "/54-dan-toc",
+            "/e-magazine",
+            "/multimedia",
+            "/video-chinh-tri",
+            "/video-kinh-te",
+            "/video-van-hoa",
+            "/video-xa-hoi",
+            "/video-phap-luat",
+            "/video-du-lich",
+            "/video-the-gioi",
+            "/video-the-thao",
+            "/video-giao-duc",
+            "/video-y-te",
+            "/video-khcn",
+            "/video-moi-truong",
+            "/giaoduc-infographic",
+            "/trung-du-va-mien-nui-bac-bo",
+            "/dong-bang-song-hong",
+            "/trang-bac-trung-bo-va-duyen-hai-trung-bo",
+            "/trang-tay-nguyen",
+            "/trang-dong-nam-bo",
+            "/trang-dong-bang-song-cuu-long",
+            "/chu-de.html",
+            "/gioi-thieu.html",
+        ),
+    )
 
 
 def _vietbao_config() -> SiteConfig:
-    return _default_site_config("vietbao", "https://vietbao.vn")
+    return SiteConfig(
+        key="vietbao",
+        base_url="https://vietbao.vn",
+        home_path="/",
+        article_name="vietbao",
+        deny_exact_paths=("/",),
+        allowed_locales=("vi", "vi-vn"),
+        deny_article_prefixes=(
+            "/en",
+            "/en/",
+            "/zh-CN",
+            "/zh-CN/",
+            "/zh-cn",
+            "/zh-cn/",
+            "/cn",
+            "/cn/",
+            "/404",
+        ),
+    )
 
 
 def _anninhthudo_config() -> SiteConfig:
@@ -220,7 +308,12 @@ def _anninhthudo_config() -> SiteConfig:
 
 
 def _cafebiz_config() -> SiteConfig:
-    return _default_site_config("cafebiz", "https://cafebiz.vn")
+    return _default_site_config(
+        "cafebiz",
+        "https://cafebiz.vn",
+        allowed_locales=("vi", "vi-vn"),
+        allowed_article_host_suffixes=(".vn",),
+    )
 
 
 def _daibieunhandan_config() -> SiteConfig:

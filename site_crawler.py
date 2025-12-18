@@ -41,6 +41,10 @@ class CategoryInfo:
     slug: str
 
 
+class SkipArticle(Exception):
+    """Raised when a crawled article should be ignored."""
+
+
 class RateLimitedHttpClient:
     """Wrapper quanh requests.Session có delay giữa các request."""
 
@@ -311,6 +315,9 @@ class NewsSiteCrawler:
                     parsed = self._parse_article(html, url=url, category=category)
                     self._save_article(parsed)
                     self._inserted += 1
+                except SkipArticle as exc:
+                    self._skipped += 1
+                    LOGGER.info("Skipping article %s: %s", url, exc)
                 except Exception as exc:
                     self._failed += 1
                     LOGGER.exception("Failed to crawl article %s: %s", url, exc)
@@ -385,6 +392,12 @@ class NewsSiteCrawler:
             normalized = _normalize_internal_url(self.site.base_url, href)
             if not normalized:
                 return
+            if self._is_denied_article_url(normalized):
+                return
+            if not self._has_allowed_article_suffix(normalized):
+                return
+            if not self._is_allowed_article_host(normalized):
+                return
             if normalized in seen:
                 return
             seen.add(normalized)
@@ -428,13 +441,63 @@ class NewsSiteCrawler:
 
         return article_urls
 
+    def _is_denied_article_url(self, url: str) -> bool:
+        prefixes = getattr(self.site, "deny_article_prefixes", ())
+        if not prefixes:
+            return False
+        parsed = urlparse(url)
+        path = parsed.path or "/"
+        for prefix in prefixes:
+            if not prefix:
+                continue
+            normalized_prefix = prefix if prefix.startswith("/") else f"/{prefix}"
+            if path.startswith(normalized_prefix):
+                return True
+        return False
+
+    def _is_allowed_article_host(self, url: str) -> bool:
+        suffixes = getattr(self.site, "allowed_article_host_suffixes", ())
+        if not suffixes:
+            return True
+        normalized_suffixes = [
+            suffix.strip().lower()
+            for suffix in suffixes
+            if suffix and suffix.strip()
+        ]
+        if not normalized_suffixes:
+            return True
+        host = urlparse(url).netloc.lower()
+        return any(host.endswith(suffix) for suffix in normalized_suffixes)
+
+    def _has_allowed_article_suffix(self, url: str) -> bool:
+        suffixes = getattr(self.site, "allowed_article_url_suffixes", ())
+        if not suffixes:
+            return True
+        normalized_suffixes = [
+            suffix.strip().lower()
+            for suffix in suffixes
+            if suffix and suffix.strip()
+        ]
+        if not normalized_suffixes:
+            return True
+        return any(url.lower().endswith(suffix) for suffix in normalized_suffixes)
+
     def _parse_article(self, html: str, *, url: str, category: CategoryInfo) -> ParsedArticle:
         soup = BeautifulSoup(html, "html.parser")
+
+        skip_locale, locale_value = self._should_skip_locale(soup)
+        if skip_locale:
+            raise SkipArticle(
+                f"Unsupported locale '{locale_value}' for article {url}",
+            )
 
         extractor = ArticleExtractor(url)
         data = extractor.extract(html)
 
         title = data.title or url
+        placeholder_title = f"{self.site.base_url.rstrip('/')}/404"
+        if title and title.strip().lower() == placeholder_title.lower():
+            raise SkipArticle(f"Placeholder 404 page for article {url}")
 
         description = data.description or data.summary
         if not description:
@@ -469,6 +532,12 @@ class NewsSiteCrawler:
                 if tokens:
                     category_name = tokens[-1]
 
+        if self.site.key == "vietbao":
+            normalized_category_id = (category_id or "").strip().lower()
+            has_category_name = bool((category_name or "").strip())
+            if not has_category_name or normalized_category_id in ("", "root"):
+                raise SkipArticle(f"Missing category for vietbao article {url}")
+
         publish_date = data.publish_date or _extract_publish_date(soup)
 
         if data.tags:
@@ -495,6 +564,54 @@ class NewsSiteCrawler:
             images=images,
             videos=videos,
         )
+
+    def _should_skip_locale(self, soup: BeautifulSoup) -> tuple[bool, Optional[str]]:
+        allowed = getattr(self.site, "allowed_locales", ())
+        if not allowed:
+            return False, None
+
+        normalized_allowed = tuple(
+            token.strip().lower().replace("_", "-")
+            for token in allowed
+            if token and token.strip()
+        )
+        if not normalized_allowed:
+            return False, None
+
+        locales = []
+        html_tag = soup.find("html")
+        if html_tag:
+            for attr in ("lang", "xml:lang"):
+                value = html_tag.get(attr)
+                if value:
+                    locales.append(value)
+                    break
+
+        for attrs in (
+            {"property": "og:locale"},
+            {"property": "article:language"},
+            {"name": "language"},
+            {"name": "dc.language"},
+            {"http-equiv": "content-language"},
+        ):
+            meta = soup.find("meta", attrs=attrs)
+            if meta and meta.get("content"):
+                locales.append(meta["content"])
+
+        normalized_locales = [
+            token.strip().lower().replace("_", "-")
+            for token in locales
+            if token and token.strip()
+        ]
+        if not normalized_locales:
+            return False, None
+
+        for locale in normalized_locales:
+            for allowed_locale in normalized_allowed:
+                if locale.startswith(allowed_locale):
+                    return False, None
+
+        return True, normalized_locales[0]
 
     def _save_article(self, parsed: ParsedArticle) -> None:
         existing = (
@@ -534,17 +651,39 @@ class NewsSiteCrawler:
         self.session.flush()
 
         for idx, img_url in enumerate(parsed.images, start=1):
+            image_path = self._trim_to_column_length(
+                img_url,
+                ArticleImage.image_path,
+            )
+            if not image_path:
+                LOGGER.debug(
+                    "Skipping empty image URL for article %s (seq=%s)",
+                    article.id,
+                    idx,
+                )
+                continue
             article.images.append(
                 ArticleImage(
-                    image_path=img_url,
+                    image_path=image_path,
                     sequence_number=idx,
                 )
             )
 
         for idx, video_url in enumerate(parsed.videos, start=1):
+            video_path = self._trim_to_column_length(
+                video_url,
+                ArticleVideo.video_path,
+            )
+            if not video_path:
+                LOGGER.debug(
+                    "Skipping empty video URL for article %s (seq=%s)",
+                    article.id,
+                    idx,
+                )
+                continue
             article.videos.append(
                 ArticleVideo(
-                    video_path=video_url,
+                    video_path=video_path,
                     sequence_number=idx,
                 )
             )
