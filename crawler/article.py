@@ -514,11 +514,15 @@ class ArticleExtractor:
             for img in image_tags:
                 if _is_in_excluded_section(img):
                     continue
+                selected: str | None = None
                 for candidate in _collect_image_candidates(img):
                     resolved = self._absolutize(candidate)
                     if _should_skip_image_url(resolved):
                         continue
-                    urls.append(resolved)
+                    selected = resolved
+                    break
+                if selected:
+                    urls.append(selected)
 
         for scope in scopes:
             if container is None and scope is soup:
@@ -529,11 +533,15 @@ class ArticleExtractor:
             for source_tag in source_tags:
                 if _is_in_excluded_section(source_tag):
                     continue
+                selected: str | None = None
                 for candidate in _collect_image_candidates(source_tag):
                     resolved = self._absolutize(candidate)
                     if _should_skip_image_url(resolved):
                         continue
-                    urls.append(resolved)
+                    selected = resolved
+                    break
+                if selected:
+                    urls.append(selected)
 
         for scope in scopes:
             for element in scope.select("[style*='background']"):
@@ -908,6 +916,7 @@ _EXCLUDED_SECTION_TOKENS = {
     "related",
     "relate",
     "tinlienquan",
+    "innerarticle",
     "share",
     "social",
     "comment",
@@ -1935,6 +1944,41 @@ def _extract_vtv_category(base_url: str, soup: BeautifulSoup) -> Tuple[str | Non
     return category_id, category_name
 
 
+def _extract_twentyfourh_category(base_url: str, soup: BeautifulSoup) -> Tuple[str | None, str | None]:
+    """
+    Trích category cho 24h.com.vn từ breadcrumb.
+
+    Breadcrumb có dạng:
+      <nav class="cate-24h-foot-breadcrumb">
+        <ul>
+          <li><a href="/">Trang chủ</a></li>
+          <li><a href="https://www.24h.com.vn/bong-da-c48.html">Bóng đá</a></li>
+        </ul>
+      </nav>
+    """
+    breadcrumb = soup.select_one("nav.cate-24h-foot-breadcrumb")
+    if not breadcrumb:
+        return None, None
+
+    category_id: str | None = None
+    category_name: str | None = None
+
+    for link in breadcrumb.select("ul li a[href]"):
+        href = (link.get("href") or "").strip()
+        if not href or href == "/":
+            continue
+        text_value = _normalize_whitespace(link.get_text(" ", strip=True))
+        if not text_value and link.get("title"):
+            text_value = _normalize_whitespace(str(link["title"]))
+        if not text_value:
+            continue
+
+        category_name = text_value
+        category_id = _slug_from_url(urljoin(base_url, href))
+
+    return category_id, category_name
+
+
 def _extract_vietnamnet_category(base_url: str, soup: BeautifulSoup) -> Tuple[str | None, str | None]:
     breadcrumb = soup.select_one("div.bread-crumb-detail")
     if breadcrumb is None:
@@ -1994,6 +2038,40 @@ def _extract_dantri_category(base_url: str, soup: BeautifulSoup) -> Tuple[str | 
     return category_id, category_name
 
 
+def _extract_znews_category(base_url: str, soup: BeautifulSoup) -> Tuple[str | None, str | None]:
+    """
+    Trích category cho znews.vn từ header bài viết.
+
+    Cấu trúc:
+      <p class="the-article-category">
+          <a href="https://znews.vn/kinh-doanh-tai-chinh.html"
+             title="Kinh doanh"
+             class="parent_cate">
+             Kinh doanh
+          </a>
+      </p>
+    """
+    container = soup.select_one("p.the-article-category")
+    if not container:
+        return None, None
+
+    link = container.find("a", href=True)
+    if not link:
+        return None, None
+
+    text_value = _normalize_whitespace(link.get_text(" ", strip=True))
+    if not text_value and link.get("title"):
+        text_value = _normalize_whitespace(str(link["title"]))
+
+    href = link.get("href")
+    category_id = _slug_from_url(urljoin(base_url, href)) if href else None
+
+    if not category_id and not text_value:
+        return None, None
+
+    return category_id, text_value
+
+
 _CATEGORY_EXTRACTORS: dict[str, Callable[[str, BeautifulSoup], Tuple[str | None, str | None]]] = {
     "genk_category": _extract_genk_category,
     "kenh14_category": _extract_kenh14_category,
@@ -2008,8 +2086,10 @@ _CATEGORY_EXTRACTORS: dict[str, Callable[[str, BeautifulSoup], Tuple[str | None,
     "giadinh_suckhoedoisong_category": _extract_giadinh_suckhoedoisong_category,
     "soha_category": _extract_soha_category,
     "vtv_category": _extract_vtv_category,
+    "twentyfourh_category": _extract_twentyfourh_category,
     "vietnamnet_category": _extract_vietnamnet_category,
     "dantri_category": _extract_dantri_category,
+    "znews_category": _extract_znews_category,
 }
 
 _TAG_EXTRACTORS: dict[str, Callable[[BeautifulSoup], List[str]]] = {

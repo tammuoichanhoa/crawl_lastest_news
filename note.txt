@@ -28,3 +28,26 @@ bnews
 dantri
 baocamau
 baodongkhoi
+
+
+------------------------
+vnexpress
+tuoitre
+kenh14
+cafef
+vtv
+vietnamnet
+24h
+vietnamplus
+dantri
+soha
+tienphong
+thanhnien
+nguoilaodong
+znews
+vietnambiz
+vtcnews
+
+Pháp Luật TP.HCM 
+VOV
+Lao Động

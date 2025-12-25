@@ -168,6 +168,50 @@ def _tuoitre_config() -> SiteConfig:
     )
 
 
+def _nguoilaodong_config() -> SiteConfig:
+    """
+    Cấu hình cơ bản cho https://nld.com.vn (Báo Người Lao Động).
+
+    Hiện tại trang chủ trả về trang captcha chống DDoS, nên tạm thời dùng
+    cấu hình mặc định và heuristic chung, chỉ giới hạn đuôi URL bài viết
+    là ".htm" theo các link đã thu thập được trong dữ liệu xuất.
+    """
+
+    return _default_site_config(
+        "nguoilaodong",
+        "https://nld.com.vn",
+        allowed_article_url_suffixes=(".htm",),
+    )
+
+
+def _laodong_config() -> SiteConfig:
+    """
+    Cấu hình cơ bản cho https://laodong.vn (Báo Lao Động).
+
+    - Bài viết chi tiết có URL đuôi ".ldo" theo các link đã thu thập được
+      trong exported_data.
+    - Các chuyên mục chính có path dạng /thoi-su, /xa-hoi, /kinh-doanh, ...
+    """
+
+    return _default_site_config(
+        "laodong",
+        "https://laodong.vn",
+        allowed_article_url_suffixes=(".ldo",),
+        allow_category_prefixes=(
+            "/thoi-su",
+            "/xa-hoi",
+            "/kinh-doanh",
+            "/bat-dong-san",
+            "/van-hoa",
+            "/phap-luat",
+            "/giao-duc",
+            "/y-te",
+            "/cong-doan",
+            "/su-kien-binh-luan",
+        ),
+    )
+
+
 def _default_site_config(
     key: str,
     base_url: str,
@@ -202,6 +246,53 @@ def _kenh14_config() -> SiteConfig:
 
 def _mattran_config() -> SiteConfig:
     return _default_site_config("mattran", "https://mattran.org.vn")
+
+
+def _thanhnien_config() -> SiteConfig:
+    """
+    Cấu hình cơ bản cho https://thanhnien.vn.
+
+    - Category chính có path dạng /thoi-su.htm, /the-gioi.htm, ...
+    - Trang category và trang bài đều dùng đuôi .htm, nên giới hạn
+      allowed_article_url_suffixes để tránh thu thập các URL không phải bài viết.
+    - Ở trang category, danh sách bài dùng thẻ
+      <a class="box-category-link-title" data-linktype="newsdetail" ...>,
+      vì vậy khai báo article_link_selector để crawler ưu tiên selector này.
+    """
+
+    return SiteConfig(
+        key="thanhnien",
+        base_url="https://thanhnien.vn",
+        home_path="/",
+        article_name="thanhnien",
+        max_categories=30,
+        max_articles_per_category=80,
+        allow_category_prefixes=(
+            "/chinh-tri",
+            "/thoi-su",
+            "/the-gioi",
+            "/kinh-te",
+            "/doi-song",
+            "/suc-khoe",
+            "/gioi-tre",
+            "/giao-duc",
+            "/du-lich",
+            "/van-hoa",
+            "/giai-tri",
+            "/the-thao",
+            "/cong-nghe",
+            "/xe",
+            "/tieu-dung-thong-minh",
+        ),
+        deny_category_prefixes=(
+            "/video",
+        ),
+        deny_exact_paths=(
+            "/",
+        ),
+        allowed_article_url_suffixes=(".htm",),
+        article_link_selector="a.box-category-link-title[data-linktype='newsdetail']",
+    )
 
 
 def _nguoiquansat_config() -> SiteConfig:
@@ -345,6 +436,70 @@ def _vtv_config() -> SiteConfig:
     return _default_site_config("vtv", "https://vtv.vn")
 
 
+def _vtcnews_config() -> SiteConfig:
+    """
+    Cấu hình cơ bản cho https://vtcnews.vn.
+
+    - Bài viết chi tiết có URL dạng \"...-ar<id>.html\".
+    - Trang \"Tin mới hôm nay\" liệt kê các bài mới nhất toàn site.
+    """
+
+    return _default_site_config(
+        "vtcnews",
+        "https://vtcnews.vn",
+        allowed_locales=("vi", "vi-vn"),
+        allowed_article_url_suffixes=(".html",),
+        # Danh sách bài viết sử dụng link có \"-ar<id>.html\".
+        article_link_selector="a[href*='-ar'][href$='.html']",
+    )
+
+
+def _twentyfourh_config() -> SiteConfig:
+    """
+    Cấu hình cơ bản cho https://www.24h.com.vn.
+
+    - Category có path dạng /bong-da-c48.html, /kinh-doanh-c161.html, ...
+    - Bài viết chi tiết có sapo trong h2#article_sapo và nội dung chính
+      trong <article id="article_body" ...>.
+    """
+
+    return SiteConfig(
+        key="24h",
+        base_url="https://www.24h.com.vn",
+        home_path="/",
+        article_name="24h",
+        deny_exact_paths=("/",),
+        allowed_locales=("vi", "vi-vn"),
+        allowed_article_url_suffixes=(".html",),
+        description_selectors=(
+            "h2#article_sapo",
+            "h2.cate-24h-foot-arti-deta-sum",
+        ),
+    )
+
+
+def _tienphong_config() -> SiteConfig:
+    """
+    Cấu hình cơ bản cho https://tienphong.vn.
+
+    - Bài viết chi tiết có URL đuôi ".tpo" (ví dụ:
+      "...-post1806382.tpo"), vì vậy giới hạn suffix này để tránh
+      thu thập các trang không phải bài viết.
+    - Sapo/description nằm trong div.article__sapo.cms-desc.
+    """
+
+    return _default_site_config(
+        "tienphong",
+        "https://tienphong.vn",
+        allowed_locales=("vi", "vi-vn"),
+        allowed_article_url_suffixes=(".tpo",),
+        description_selectors=(
+            "div.article__sapo",
+            "div.article__sapo.cms-desc",
+        ),
+    )
+
+
 def _baolaocai_config() -> SiteConfig:
     return _default_site_config("baolaocai", "https://baolaocai.vn")
 
@@ -391,6 +546,57 @@ def _baophapluat_config() -> SiteConfig:
     return _default_site_config("baophapluat", "https://baophapluat.vn")
 
 
+def _vietnambiz_config() -> SiteConfig:
+    """
+    Cấu hình cơ bản cho https://vietnambiz.vn (VietnamBiz).
+
+    - Các chuyên mục chính có path dạng /thoi-su.htm, /tai-chinh.htm, ...
+    - Bài viết chi tiết có URL đuôi ".htm" với phần cuối "-<id>.htm".
+    - Trang category/home hiển thị danh sách bài trong các block với
+      tiêu đề nằm trong h2.title, h3.title hoặc div.title > a[data-type='title'].
+    - Nội dung sapo/tóm tắt bài chi tiết nằm trong div.vnbcbc-sapo[data-role='sapo'].
+    """
+
+    return SiteConfig(
+        key="vietnambiz",
+        base_url="https://vietnambiz.vn",
+        home_path="/",
+        category_path_pattern="/{slug}.htm",
+        article_name="vietnambiz",
+        max_categories=30,
+        max_articles_per_category=80,
+        allow_category_prefixes=(
+            "/thoi-su",
+            "/du-bao",
+            "/hang-hoa",
+            "/quoc-te",
+            "/tai-chinh",
+            "/nha-dat",
+            "/chung-khoan",
+            "/doanh-nghiep",
+            "/kinh-doanh",
+        ),
+        deny_category_prefixes=(
+            "/emagazine",
+            "/infographic",
+            "/photostory",
+        ),
+        deny_exact_paths=(
+            "/",
+        ),
+        allowed_article_url_suffixes=(".htm",),
+        description_selectors=(
+            "div.vnbcbc-sapo[data-role='sapo']",
+            "div.vnbcbc-sapo",
+        ),
+        article_link_selector=(
+            "h2.title a[href], "
+            "h3.title a[href], "
+            "div.title > a[data-type='title']"
+        ),
+    )
+
+
 def _baodongnai_config() -> SiteConfig:
     return SiteConfig(
         key="baodongnai",
@@ -432,12 +638,92 @@ def _baodongkhoi_config() -> SiteConfig:
     return _default_site_config("baodongkhoi", "https://baodongkhoi.vn")
 
 
+def _znews_config() -> SiteConfig:
+    """
+    Cấu hình cơ bản cho https://znews.vn (Zing News).
+
+    - Các chuyên mục chính có path dạng /xuat-ban.html, /kinh-doanh-tai-chinh.html, ...
+    - Bài viết chi tiết có URL đuôi ".html" với slug "-post<id>.html".
+    - Trang category và trang chủ hiển thị danh sách bài trong
+      <article class="article-item"> với tiêu đề trong h3.article-title > a.
+    - Nội dung bài chi tiết dùng phần tóm tắt trong p.the-article-summary.
+    """
+
+    return SiteConfig(
+        key="znews",
+        base_url="https://znews.vn",
+        home_path="/",
+        article_name="znews",
+        max_categories=30,
+        max_articles_per_category=80,
+        allow_category_prefixes=(
+            "/xuat-ban",
+            "/kinh-doanh-tai-chinh",
+            "/suc-khoe",
+            "/the-thao",
+            "/doi-song",
+            "/cong-nghe",
+            "/giai-tri",
+            "/sach-hay",
+            "/du-lich",
+            "/oto-xe-may",
+            "/cuon-sach-toi-doc",
+            "/van-hoa-doc",
+            "/xa-hoi",
+            "/phap-luat",
+            "/the-gioi",
+            "/giao-duc",
+        ),
+        deny_category_prefixes=(
+            "/video",
+            "/series",
+            "/tieu-diem",
+        ),
+        deny_exact_paths=(
+            "/",
+        ),
+        allowed_article_url_suffixes=(".html",),
+        # Danh sách bài trên category/home: <article class="article-item"> với
+        # tiêu đề trong h3.article-title > a.
+        article_link_selector="article.article-item h3.article-title a[href]",
+        # Tóm tắt bài chi tiết: <p class="the-article-summary">...</p>
+        description_selectors=(
+            "p.the-article-summary",
+        ),
+    )
+
+
+def _vov_config() -> SiteConfig:
+    """
+    Cấu hình cơ bản cho https://vov.vn (Báo điện tử VOV).
+
+    Tạm thời sử dụng cấu hình mặc định, dựa vào heuristic chung để:
+    - phát hiện category từ các link nội bộ trên trang chủ,
+    - phát hiện link bài viết trong trang category.
+    Nếu cần tối ưu thêm (selector description, danh sách category cụ thể, ...),
+    có thể tinh chỉnh cấu hình này sau khi đã thu thập được dữ liệu mẫu.
+    """
+
+    return SiteConfig(
+        key="vov",
+        base_url="https://vov.vn",
+        home_path="/",
+        article_name="vov",
+        deny_exact_paths=("/",),
+    )
+
+
 def get_supported_sites() -> Dict[str, SiteConfig]:
     """Trả về dict {site_key: SiteConfig} cho tất cả các trang được hỗ trợ."""
     sites: Dict[str, SiteConfig] = {}
     for cfg in (
         _vnexpress_config(),
         _tuoitre_config(),
+        _nguoilaodong_config(),
+        _laodong_config(),
+        _thanhnien_config(),
+        _twentyfourh_config(),
+        _tienphong_config(),
         _genk_config(),
         _kenh14_config(),
         _mattran_config(),
@@ -453,6 +739,7 @@ def get_supported_sites() -> Dict[str, SiteConfig]:
         _nongnghiepmoitruong_config(),
         _cafef_config(),
         _vtv_config(),
+        _vtcnews_config(),
         _baolaocai_config(),
         _vietnamnet_config(),
         _vietnamplus_config(),
@@ -460,12 +747,15 @@ def get_supported_sites() -> Dict[str, SiteConfig]:
         _baodautu_config(),
         _soha_config(),
         _vneconomy_config(),
+        _vietnambiz_config(),
         _baophapluat_config(),
         _baodongnai_config(),
         _bnews_config(),
         _dantri_config(),
         _baocamau_config(),
         _baodongkhoi_config(),
+        _znews_config(),
+        _vov_config(),
     ):
         sites[cfg.key] = cfg
     return sites

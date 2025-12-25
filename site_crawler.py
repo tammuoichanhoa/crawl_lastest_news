@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from .config import SiteConfig
 from .db.models import Article, ArticleImage, ArticleVideo
-from .crawler.article import ArticleExtractor
+from .crawler.article import ArticleExtractor, _is_in_excluded_section, _prettify_slug
 
 
 LOGGER = logging.getLogger(__name__)
@@ -239,6 +239,8 @@ def _extract_images_and_videos(soup: BeautifulSoup, base_url: str) -> tuple[List
             continue
 
         for img in container.find_all("img"):
+            if _is_in_excluded_section(img):
+                continue
             candidate = img.get("data-src") or img.get("src")
             url = _normalize_internal_url(base_url, candidate) if candidate else None
             if url and url not in seen_img:
@@ -247,6 +249,8 @@ def _extract_images_and_videos(soup: BeautifulSoup, base_url: str) -> tuple[List
 
         for tag_name in ("video", "iframe", "source"):
             for node in container.find_all(tag_name):
+                if _is_in_excluded_section(node):
+                    continue
                 candidate = node.get("src") or node.get("data-src")
                 url = _normalize_internal_url(base_url, candidate) if candidate else None
                 if url and url not in seen_video:
@@ -519,6 +523,22 @@ class NewsSiteCrawler:
 
         content = data.content or _extract_main_content(soup) or None
 
+        # Nếu bản thân trang bài không có category_id và category_name
+        # (do ArticleExtractor không trích được từ HTML) thì bỏ qua.
+        # Những URL này thường là trang thể loại/bộ sưu tập, không phải bài báo cụ thể.
+        if not (data.category_id or data.category_name):
+            # Riêng với một số site, ta fallback dùng slug category từ trang danh sách.
+            # - vov: trang bài thường không có meta category rõ ràng.
+            # - vnexpress: ArticleExtractor chưa trích được category, nhưng slug từ trang
+            #   danh sách đã phản ánh đúng chuyên mục (thoi-su, kinh-doanh, ...).
+            if self.site.key in ("vov", "vnexpress"):
+                data.category_id = category.slug
+                data.category_name = _prettify_slug(category.slug)
+            else:
+                raise SkipArticle(
+                    f"Missing category id and name for article {url}",
+                )
+
         category_id = data.category_id or category.slug
         category_name = data.category_name
         if not category_name:
@@ -650,7 +670,9 @@ class NewsSiteCrawler:
         self.session.add(article)
         self.session.flush()
 
-        for idx, img_url in enumerate(parsed.images, start=1):
+        max_images_per_article = 10
+
+        for idx, img_url in enumerate(parsed.images[:max_images_per_article], start=1):
             image_path = self._trim_to_column_length(
                 img_url,
                 ArticleImage.image_path,
@@ -669,7 +691,9 @@ class NewsSiteCrawler:
                 )
             )
 
-        for idx, video_url in enumerate(parsed.videos, start=1):
+        max_videos_per_article = 5
+
+        for idx, video_url in enumerate(parsed.videos[:max_videos_per_article], start=1):
             video_path = self._trim_to_column_length(
                 video_url,
                 ArticleVideo.video_path,

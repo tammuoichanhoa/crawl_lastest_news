@@ -49,6 +49,18 @@ ARTICLE_SITE_CONFIG: Dict[str, ArticleSiteConfig] = {
         main_container_selectors=("div#ContentDetail",),
         category_extractors=("genk_category",),
     ),
+    "24h.com.vn": ArticleSiteConfig(
+        description_selectors=(
+            "h2#article_sapo",
+            "h2.cate-24h-foot-arti-deta-sum",
+        ),
+        main_container_selectors=(
+            "article#article_body",
+            "article.cate-24h-foot-arti-deta-content-main",
+        ),
+        main_container_keywords=("article_body", "cate-24h-foot-arti-deta-content-main"),
+        category_extractors=("twentyfourh_category",),
+    ),
     "kenh14.vn": ArticleSiteConfig(
         category_extractors=("kenh14_category",),
         tag_extractors=("kenh14_tags",),
@@ -75,6 +87,13 @@ ARTICLE_SITE_CONFIG: Dict[str, ArticleSiteConfig] = {
     "vietnamnet.vn": ArticleSiteConfig(
         category_extractors=("vietnamnet_category",),
         tag_extractors=("vietnamnet_tags",),
+        excluded_section_selectors=(
+            # Khối bài liên quan, không phải nội dung chính của bài.
+            "div.ck-cms-insert-neww-group.vnn-template-noneditable.articles-edit",
+        ),
+        # Chỉ lấy ảnh xuất hiện trong nội dung bài viết,
+        # bỏ qua các ảnh meta/thumbnail dùng chung toàn site.
+        inline_media_only=True,
     ),
     "vietnamplus.vn": ArticleSiteConfig(
         main_container_selectors=(
@@ -277,8 +296,35 @@ ARTICLE_SITE_CONFIG: Dict[str, ArticleSiteConfig] = {
         main_container_keywords=("article__body", "article", "body"),
         tag_extractors=("vneconomy_tags",),
     ),
+    "vtcnews.vn": ArticleSiteConfig(
+        description_selectors=(
+            "h2.font18.bold.inline-nb",
+            "meta[name='description']",
+            "meta[property='og:description']",
+        ),
+        main_container_selectors=(
+            "div.edittor-content.box-cont.mt15.clearfix",
+            "div.edittor-content",
+            "div.content-wrapper.pt5.mt5.font18.gray-31.bor-4top-e5.lh-1-5",
+        ),
+        main_container_keywords=("edittor-content", "content-wrapper", "box-cont"),
+    ),
     "nongnghiepmoitruong.vn": ArticleSiteConfig(
         description_selectors=("h2.main-intro.detail-intro",),
+    ),
+    "znews.vn": ArticleSiteConfig(
+        main_container_selectors=(
+            "div.the-article-body",
+            "article.the-article div.the-article-body",
+        ),
+        main_container_keywords=("the-article-body", "article"),
+        description_selectors=(
+            "p.the-article-summary",
+        ),
+        excluded_section_selectors=(
+            "#innerarticle",
+        ),
+        category_extractors=("znews_category",),
     ),
 }
 

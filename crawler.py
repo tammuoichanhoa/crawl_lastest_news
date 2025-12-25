@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from .config import SiteConfig
 from .db.models import Article, ArticleImage, ArticleVideo
-from .crawler.article import ArticleExtractor
+from .crawler.article import ArticleExtractor, _prettify_slug
 
 
 LOGGER = logging.getLogger(__name__)
@@ -92,9 +92,18 @@ def _normalize_internal_url(base_url: str, href: str) -> Optional[str]:
         return None
 
     base = urlparse(base_url)
-    base_host = base.netloc.lower()
     host = parsed.netloc.lower()
-    if host != base_host and host != f"www.{base_host}":
+    base_host = base.netloc.lower()
+
+    # Cho phép cùng host, www.*, và các subdomain của host gốc.
+    # Ví dụ: tienphong.vn → cdn.tienphong.vn, m.tienphong.vn.
+    root_host = base_host[4:] if base_host.startswith("www.") else base_host
+    allowed_hosts = {
+        base_host,
+        root_host,
+        f"www.{root_host}",
+    }
+    if host not in allowed_hosts and not host.endswith(f".{root_host}"):
         return None
 
     cleaned = parsed._replace(query="", fragment="")
@@ -231,7 +240,21 @@ def _extract_images_and_videos(soup: BeautifulSoup, base_url: str) -> tuple[List
     seen_img: Set[str] = set()
     seen_video: Set[str] = set()
 
-    for selector in ("article", "#content", "#main_detail", ".article-content"):
+    # Ưu tiên các container nội dung chính, bao phủ nhiều site:
+    # - VNExpress, Tuổi Trẻ: article.fck_detail, article#main-detail-body, ...
+    # - Tiền Phong: div.article__body.cms-body.zce-content-body, ...
+    for selector in (
+        "div.article__body",
+        "div.article__body.cms-body",
+        "div.article__body.zce-content-body",
+        "article.fck_detail",
+        "article#main-detail-body",
+        "article.article",
+        "#main_detail",
+        "#content",
+        ".article-content",
+        "article",
+    ):
         container = soup.select_one(selector)
         if not container:
             continue
@@ -494,6 +517,10 @@ class NewsSiteCrawler:
                         tokens.append(text)
                 if tokens:
                     category_name = tokens[-1]
+        if not category_name:
+            slug_for_name = data.category_id or category.slug
+            if slug_for_name:
+                category_name = _prettify_slug(slug_for_name)
 
         publish_date = data.publish_date or _extract_publish_date(soup)
 

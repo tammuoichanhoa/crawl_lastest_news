@@ -4,6 +4,7 @@ import argparse
 import logging
 import os
 import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import List, Sequence
 
 # Cho phép chạy trực tiếp file này:
@@ -61,7 +62,33 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Bật echo SQLAlchemy (debug).",
     )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=None,
+        help=(
+            "Số luồng crawl song song (default: số site được chọn). "
+            "Mỗi site sẽ chạy trong 1 thread và 1 DB session riêng."
+        ),
+    )
     return parser.parse_args(argv)
+
+
+def _crawl_single_site(
+    cfg,
+    *,
+    database_url: str | None,
+    echo_sql: bool,
+    max_articles_per_site: int | None,
+):
+    with session_scope(database_url=database_url, echo=echo_sql) as session:
+        crawler = NewsSiteCrawler(cfg, session=session)
+        crawler.crawl(max_articles=max_articles_per_site)
+        logging.info(
+            "Site %s done. Stats: %s",
+            cfg.key,
+            crawler.stats,
+        )
 
 
 def main(argv: List[str] | None = None) -> int:
@@ -88,15 +115,31 @@ def main(argv: List[str] | None = None) -> int:
         ", ".join(cfg.key for cfg in site_configs),
     )
 
-    with session_scope(database_url=args.database_url, echo=args.echo_sql) as session:
-        for cfg in site_configs:
-            crawler = NewsSiteCrawler(cfg, session=session)
-            crawler.crawl(max_articles=args.max_articles_per_site)
-            logging.info(
-                "Site %s done. Stats: %s",
-                cfg.key,
-                crawler.stats,
-            )
+    workers = args.workers or len(site_configs)
+    if workers < 1:
+        workers = 1
+
+    logging.info("Starting crawl with %s worker(s)", workers)
+
+    # Mỗi site chạy trong 1 thread riêng với 1 DB session riêng.
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        future_to_cfg = {
+            executor.submit(
+                _crawl_single_site,
+                cfg,
+                database_url=args.database_url,
+                echo_sql=args.echo_sql,
+                max_articles_per_site=args.max_articles_per_site,
+            ): cfg
+            for cfg in site_configs
+        }
+
+        for future in as_completed(future_to_cfg):
+            cfg = future_to_cfg[future]
+            try:
+                future.result()
+            except Exception as exc:  # pragma: no cover - logging only
+                logging.exception("Site %s failed: %s", cfg.key, exc)
 
     return 0
 
