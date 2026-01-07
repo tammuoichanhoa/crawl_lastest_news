@@ -66,8 +66,14 @@ ARTICLE_SITE_CONFIG: Dict[str, ArticleSiteConfig] = {
         tag_extractors=("kenh14_tags",),
     ),
     "cafebiz.vn": ArticleSiteConfig(
+        description_selectors=(
+            "h2.sapo",
+            "p.sapo",
+            "div.sapo",
+        ),
         main_container_selectors=(
             "div.detail-content[data-role='content']",
+            "div.detail-content",
         ),
         main_container_keywords=("detail-content", "content"),
         category_extractors=("cafebiz_category",),
@@ -80,6 +86,11 @@ ARTICLE_SITE_CONFIG: Dict[str, ArticleSiteConfig] = {
         ),
         main_container_keywords=("detail-cmain", "maincontent", "detail"),
         category_extractors=("cafef_category",),
+    ),
+    "daibieunhandan.vn": ArticleSiteConfig(
+        main_container_selectors=(
+            "div.c-video-detail",
+        ),
     ),
     "vtv.vn": ArticleSiteConfig(
         category_extractors=("vtv_category",),
@@ -126,6 +137,10 @@ ARTICLE_SITE_CONFIG: Dict[str, ArticleSiteConfig] = {
             ".b-maincontent",
         ),
         main_container_keywords=("b-maincontent", "maincontent"),
+        excluded_section_selectors=(
+            # Khối "Bài liên quan" bị chèn vào content và kéo theo ảnh không thuộc bài chính.
+            "div.c-box:has(.c-box__title__name:-soup-contains('Bài liên quan'))",
+        ),
     ),
     "baocamau.vn": ArticleSiteConfig(
         category_extractors=("baocamau_category",),
@@ -311,6 +326,10 @@ ARTICLE_SITE_CONFIG: Dict[str, ArticleSiteConfig] = {
     ),
     "nongnghiepmoitruong.vn": ArticleSiteConfig(
         description_selectors=("h2.main-intro.detail-intro",),
+        main_container_selectors=(
+            "div.content[itemprop='articleBody']",
+        ),
+        main_container_keywords=("content", "articleBody"),
     ),
     "znews.vn": ArticleSiteConfig(
         main_container_selectors=(

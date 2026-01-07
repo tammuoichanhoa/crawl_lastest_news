@@ -203,6 +203,31 @@ class ArticleExtractor:
         collected_texts: List[str] = []
         last_text: str | None = None
         queue: deque[Tag] = deque([container])
+        blockish_tags = {
+            "article",
+            "aside",
+            "blockquote",
+            "div",
+            "dl",
+            "figure",
+            "footer",
+            "form",
+            "header",
+            "h1",
+            "h2",
+            "h3",
+            "h4",
+            "h5",
+            "h6",
+            "main",
+            "nav",
+            "ol",
+            "p",
+            "pre",
+            "section",
+            "table",
+            "ul",
+        }
 
         while queue:
             current = queue.popleft()
@@ -233,6 +258,18 @@ class ArticleExtractor:
                         continue
                     collected_texts.append(table_text)
                     last_text = table_text
+                elif child.name == "div":
+                    # Some publishers (e.g. baolaocai.vn) render paragraphs as bare <div> nodes.
+                    # Treat leaf-ish divs (no nested block-ish tags) as paragraph candidates.
+                    if child.find(tuple(blockish_tags - {"div"})):
+                        queue.append(child)
+                        continue
+                    text = child.get_text(" ", strip=True)
+                    text = _normalize_whitespace(text)
+                    if not text or _contains_excluded_text(text) or text == last_text:
+                        continue
+                    collected_texts.append(text)
+                    last_text = text
                 else:
                     queue.append(child)
 

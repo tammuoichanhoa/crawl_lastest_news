@@ -435,10 +435,9 @@ class NewsSiteCrawler:
                 parsed = urlparse(normalized)
                 if len(parsed.path or "") < 10:
                     continue
-                if normalized in seen:
-                    continue
-                seen.add(normalized)
-                article_urls.append(normalized)
+                # Fallback vẫn phải áp các rule lọc URL bài viết (suffix/host/deny prefixes)
+                # để tránh thu thập nhầm trang danh mục/tag/search, v.v.
+                _register(normalized)
 
         if self.site.max_articles_per_category and len(article_urls) > self.site.max_articles_per_category:
             article_urls = article_urls[: self.site.max_articles_per_category]
@@ -522,6 +521,8 @@ class NewsSiteCrawler:
             description = _text_or_none(desc_node)
 
         content = data.content or _extract_main_content(soup) or None
+        if not content or len(content.strip()) < 50:
+            raise SkipArticle(f"Missing article content for {url}")
 
         # Nếu bản thân trang bài không có category_id và category_name
         # (do ArticleExtractor không trích được từ HTML) thì bỏ qua.

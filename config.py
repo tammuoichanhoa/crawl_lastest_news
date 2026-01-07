@@ -404,6 +404,11 @@ def _cafebiz_config() -> SiteConfig:
         "https://cafebiz.vn",
         allowed_locales=("vi", "vi-vn"),
         allowed_article_host_suffixes=(".vn",),
+        description_selectors=(
+            "h2.sapo",
+            "p.sapo",
+            "div.sapo",
+        ),
     )
 
 
