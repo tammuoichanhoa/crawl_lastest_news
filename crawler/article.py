@@ -11,7 +11,7 @@ from html import unescape
 from typing import Any, Callable, Iterable, List, Optional, Sequence, Tuple
 from urllib.parse import urljoin, urlparse
 import requests
-from bs4 import BeautifulSoup, Tag
+from bs4 import BeautifulSoup, NavigableString, Tag
 from dateutil import parser as date_parser
 
 from db.models import Article, ArticleImage, ArticleVideo
@@ -242,7 +242,19 @@ class ArticleExtractor:
                     continue
 
                 if child.name in {"p", "h2", "h3", "h4", "li"}:
-                    text = child.get_text(" ", strip=True)
+                    if child.name == "li" and self.domain.endswith("baocamau.vn"):
+                        text_chunks: List[str] = []
+                        for node in child.descendants:
+                            if not isinstance(node, NavigableString):
+                                continue
+                            if node.find_parent("a"):
+                                continue
+                            raw = str(node).strip()
+                            if raw:
+                                text_chunks.append(raw)
+                        text = " ".join(text_chunks)
+                    else:
+                        text = child.get_text(" ", strip=True)
                     text = _normalize_whitespace(text)
                     if not text:
                         continue
@@ -650,7 +662,7 @@ class ArticleCrawler:
         self,
         session_factory,
         timeout: int = 20,
-        max_images: int = 10,
+        max_images: int | None = None,
         max_videos: int = 5,
         user_agent: str | None = None,
         throttler: RequestThrottler | None = None,
@@ -752,7 +764,10 @@ class ArticleCrawler:
             session.add(article)
             session.flush()  # ensures article.id is generated
 
-            for idx, image_url in enumerate(data.images[: self.max_images], start=1):
+            image_urls = data.images
+            if self.max_images is not None and self.max_images > 0:
+                image_urls = image_urls[: self.max_images]
+            for idx, image_url in enumerate(image_urls, start=1):
                 article.images.append(
                     ArticleImage(
                         image_path=image_url,  # storing original URL; adjust if downloads are required
@@ -1166,6 +1181,8 @@ def _should_skip_image_url(url: str) -> bool:
 
     parsed = urlparse(url)
     filename = posixpath.basename(parsed.path).lower()
+    if filename == "grey.gif":
+        return True
     if filename and any(keyword in filename for keyword in _IMAGE_PLACEHOLDER_KEYWORDS):
         return True
     extension = posixpath.splitext(parsed.path)[1].lower()

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import time
 from dataclasses import dataclass
 from datetime import datetime
@@ -53,11 +54,15 @@ class RateLimitedHttpClient:
         *,
         delay_seconds: float = 0.5,
         timeout: int = 20,
+        max_retries: int = 2,
+        retry_backoff: float = 1.0,
         headers: Optional[Dict[str, str]] = None,
     ) -> None:
         self._session = requests.Session()
         self._delay = max(float(delay_seconds), 0.0)
         self._timeout = max(int(timeout), 1)
+        self._max_retries = max(int(max_retries), 0)
+        self._retry_backoff = max(float(retry_backoff), 0.0)
         self._next_request_ts = 0.0
         self._headers = {
             "User-Agent": (
@@ -70,10 +75,42 @@ class RateLimitedHttpClient:
             self._headers.update(headers)
 
     def get(self, url: str) -> str:
-        self._respect_delay()
-        response = self._session.get(url, headers=self._headers, timeout=self._timeout)
-        response.raise_for_status()
-        return response.text
+        retry_statuses = {429, 500, 502, 503, 504}
+        last_exc: Optional[Exception] = None
+        for attempt in range(self._max_retries + 1):
+            self._respect_delay()
+            try:
+                response = self._session.get(
+                    url,
+                    headers=self._headers,
+                    timeout=self._timeout,
+                )
+            except requests.RequestException as exc:
+                last_exc = exc
+                if attempt >= self._max_retries:
+                    raise
+                self._sleep_retry(attempt)
+                continue
+
+            if response.status_code in retry_statuses and attempt < self._max_retries:
+                self._sleep_retry(attempt, response=response)
+                continue
+
+            response.raise_for_status()
+            return response.text
+
+        if last_exc:
+            raise last_exc
+        raise requests.HTTPError(f"Failed to fetch {url}")
+
+    def _sleep_retry(self, attempt: int, response: Optional[requests.Response] = None) -> None:
+        retry_after = 0.0
+        if response is not None:
+            retry_after_value = response.headers.get("Retry-After")
+            if retry_after_value and retry_after_value.isdigit():
+                retry_after = float(retry_after_value)
+        backoff = self._retry_backoff * (2 ** attempt)
+        time.sleep(max(backoff, retry_after))
 
     def _respect_delay(self) -> None:
         if self._delay <= 0:
@@ -98,7 +135,14 @@ def _normalize_internal_url(base_url: str, href: str) -> Optional[str]:
     base = urlparse(base_url)
     base_host = base.netloc.lower()
     host = parsed.netloc.lower()
-    if host != base_host and host != f"www.{base_host}":
+
+    root_host = base_host[4:] if base_host.startswith("www.") else base_host
+    allowed_hosts = {
+        base_host,
+        root_host,
+        f"www.{root_host}",
+    }
+    if host not in allowed_hosts and not host.endswith(f".{root_host}"):
         return None
 
     cleaned = parsed._replace(query="", fragment="")
@@ -131,6 +175,7 @@ def _extract_main_content(soup: BeautifulSoup) -> str:
         "div#main_detail",
         "div#content",
         "div.article-content",
+        "div.b-maincontent",
     ]
     for selector in candidates:
         node = soup.select_one(selector)
@@ -232,8 +277,9 @@ def _extract_images_and_videos(soup: BeautifulSoup, base_url: str) -> tuple[List
     videos: List[str] = []
     seen_img: Set[str] = set()
     seen_video: Set[str] = set()
+    blocked_image_urls = {"https://bqn.1cdn.vn/assets/images/grey.gif"}
 
-    for selector in ("article", "#content", "#main_detail", ".article-content"):
+    for selector in ("article", "#content", "#main_detail", ".article-content", ".b-maincontent"):
         container = soup.select_one(selector)
         if not container:
             continue
@@ -241,9 +287,14 @@ def _extract_images_and_videos(soup: BeautifulSoup, base_url: str) -> tuple[List
         for img in container.find_all("img"):
             if _is_in_excluded_section(img):
                 continue
-            candidate = img.get("data-src") or img.get("src")
+            candidate = (
+                img.get("data-src")
+                or img.get("data-original")
+                or img.get("data-lazy-src")
+                or img.get("src")
+            )
             url = _normalize_internal_url(base_url, candidate) if candidate else None
-            if url and url not in seen_img:
+            if url and url not in seen_img and url not in blocked_image_urls:
                 seen_img.add(url)
                 images.append(url)
 
@@ -389,55 +440,53 @@ class NewsSiteCrawler:
             return []
         soup = BeautifulSoup(html, "html.parser")
 
-        article_urls: List[str] = []
+        candidates: List[str] = []
         seen: Set[str] = set()
 
-        def _register(href: str) -> None:
+        def _collect(href: str) -> None:
             normalized = _normalize_internal_url(self.site.base_url, href)
             if not normalized:
-                return
-            if self._is_denied_article_url(normalized):
-                return
-            if not self._has_allowed_article_suffix(normalized):
-                return
-            if not self._is_allowed_article_host(normalized):
                 return
             if normalized in seen:
                 return
             seen.add(normalized)
-            article_urls.append(normalized)
+            candidates.append(normalized)
 
         if self.site.article_link_selector:
             for node in soup.select(self.site.article_link_selector):
                 href = node.get("href")
                 if href:
-                    _register(href)
+                    _collect(href)
 
-        if not article_urls:
-            for node in soup.find_all("article"):
-                anchor = node.find("a", href=True)
-                if anchor:
-                    _register(anchor["href"])
+        for node in soup.find_all("article"):
+            anchor = node.find("a", href=True)
+            if anchor:
+                _collect(anchor["href"])
 
-        if not article_urls:
-            for selector in ("h3 a[href]", "h2 a[href]"):
-                for node in soup.select(selector):
-                    href = node.get("href")
-                    if href:
-                        _register(href)
+        for selector in ("h3 a[href]", "h2 a[href]"):
+            for node in soup.select(selector):
+                href = node.get("href")
+                if href:
+                    _collect(href)
 
-        if not article_urls:
-            for anchor in soup.find_all("a", href=True):
-                href = anchor["href"]
-                normalized = _normalize_internal_url(self.site.base_url, href)
-                if not normalized:
-                    continue
-                parsed = urlparse(normalized)
-                if len(parsed.path or "") < 10:
-                    continue
-                # Fallback vẫn phải áp các rule lọc URL bài viết (suffix/host/deny prefixes)
-                # để tránh thu thập nhầm trang danh mục/tag/search, v.v.
-                _register(normalized)
+        for anchor in soup.find_all("a", href=True):
+            href = anchor["href"]
+            normalized = _normalize_internal_url(self.site.base_url, href)
+            if not normalized:
+                continue
+            parsed = urlparse(normalized)
+            if len(parsed.path or "") < 10:
+                continue
+            _collect(normalized)
+
+        article_urls = [
+            url
+            for url in candidates
+            if not self._is_denied_article_url(url)
+            and self._has_allowed_article_suffix(url)
+            and self._has_allowed_article_path(url)
+            and self._is_allowed_article_host(url)
+        ]
 
         if self.site.max_articles_per_category and len(article_urls) > self.site.max_articles_per_category:
             article_urls = article_urls[: self.site.max_articles_per_category]
@@ -484,6 +533,21 @@ class NewsSiteCrawler:
         if not normalized_suffixes:
             return True
         return any(url.lower().endswith(suffix) for suffix in normalized_suffixes)
+
+    def _has_allowed_article_path(self, url: str) -> bool:
+        patterns = getattr(self.site, "allowed_article_path_regexes", ())
+        if not patterns:
+            return True
+        path = urlparse(url).path or "/"
+        for pattern in patterns:
+            if not pattern:
+                continue
+            try:
+                if re.search(pattern, path):
+                    return True
+            except re.error:
+                LOGGER.warning("Invalid allowed_article_path_regex: %s", pattern)
+        return False
 
     def _parse_article(self, html: str, *, url: str, category: CategoryInfo) -> ParsedArticle:
         soup = BeautifulSoup(html, "html.parser")
@@ -671,9 +735,7 @@ class NewsSiteCrawler:
         self.session.add(article)
         self.session.flush()
 
-        max_images_per_article = 10
-
-        for idx, img_url in enumerate(parsed.images[:max_images_per_article], start=1):
+        for idx, img_url in enumerate(parsed.images, start=1):
             image_path = self._trim_to_column_length(
                 img_url,
                 ArticleImage.image_path,
