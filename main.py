@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import os
 import sys
@@ -71,6 +72,18 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
             "Mỗi site sẽ chạy trong 1 thread và 1 DB session riêng."
         ),
     )
+    parser.add_argument(
+        "--list-article-links",
+        action="store_true",
+        help=(
+            "Chỉ thu thập link bài viết từ trang category đầu tiên, "
+            "không lưu DB."
+        ),
+    )
+    parser.add_argument(
+        "--output",
+        help="Ghi kết quả JSON ra file (mặc định: in ra stdout).",
+    )
     return parser.parse_args(argv)
 
 
@@ -108,6 +121,19 @@ def main(argv: List[str] | None = None) -> int:
 
     if not site_configs:
         logging.warning("Không có site nào được chọn để crawl.")
+        return 0
+
+    if args.list_article_links:
+        results = {}
+        for cfg in site_configs:
+            crawler = NewsSiteCrawler(cfg, session=None)
+            results[cfg.key] = crawler.collect_category_article_links()
+        payload = json.dumps(results, ensure_ascii=True, indent=2)
+        if args.output:
+            with open(args.output, "w", encoding="utf-8") as file:
+                file.write(payload)
+        else:
+            print(payload)
         return 0
 
     logging.info(

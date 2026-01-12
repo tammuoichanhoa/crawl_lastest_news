@@ -68,6 +68,9 @@ class SiteConfig:
     # Loại bỏ các bài viết có path bắt đầu bằng những prefix này.
     deny_article_prefixes: Tuple[str, ...] = field(default_factory=tuple)
 
+    # Giữ lại query string khi chuẩn hóa URL (mặc định loại bỏ).
+    keep_query_params: bool = False
+
     def resolved_article_name(self) -> str:
         """Giá trị cuối cùng để ghi vào Article.article_name."""
         if self.article_name:
@@ -687,7 +690,49 @@ def _vneconomy_config() -> SiteConfig:
 
 
 def _baophapluat_config() -> SiteConfig:
-    return _default_site_config("baophapluat", "https://baophapluat.vn")
+    """
+    Cấu hình cho https://baophapluat.vn (Báo Pháp luật Việt Nam).
+
+    - Category nằm dưới /chuyen-muc/{slug}.html (một số link không có .html).
+    - Bài viết chi tiết có URL dạng "/{slug}.html".
+    - Link bài viết thường dùng <a class="loading-link" ...>.
+    """
+
+    return SiteConfig(
+        key="baophapluat",
+        base_url="https://baophapluat.vn",
+        home_path="/",
+        category_path_pattern="/chuyen-muc/{slug}.html",
+        article_name="baophapluat",
+        max_categories=30,
+        max_articles_per_category=80,
+        allow_category_prefixes=(
+            "/chuyen-muc/",
+        ),
+        deny_category_prefixes=(
+            "/chuyen-muc/media",
+            "/chuyen-muc/thong-tin-quang-cao",
+        ),
+        deny_exact_paths=(
+            "/",
+        ),
+        allowed_locales=("vi", "vi-vn"),
+        allowed_article_url_suffixes=(".html",),
+        allowed_article_path_regexes=(
+            r"^/[^/]+\.html$",
+        ),
+        deny_article_prefixes=(
+            "/chuyen-muc/",
+            "/media/",
+            "/podcasts/",
+            "/static/",
+        ),
+        article_link_selector="a.loading-link[href$='.html']",
+        description_selectors=(
+            "meta[name='description']",
+            "meta[property='og:description']",
+        ),
+    )
 
 
 def _vietnambiz_config() -> SiteConfig:
@@ -789,6 +834,302 @@ def _dantri_config() -> SiteConfig:
             ".singular-sapo",
             ".singular-sapo h2",
             "meta[name='description']",
+        ),
+    )
+
+
+def _baocantho_config() -> SiteConfig:
+    """
+    Cấu hình cho https://baocantho.com.vn.
+
+    - Category dạng /{slug}/, có thể có subcategory.
+    - Bài viết dùng đuôi .html với slug "-a<id>.html".
+    """
+
+    return SiteConfig(
+        key="baocantho",
+        base_url="https://baocantho.com.vn",
+        home_path="/",
+        article_name="baocantho",
+        category_path_pattern="/{slug}/",
+        max_categories=20,
+        max_articles_per_category=80,
+        allow_category_prefixes=(
+            "/thoi-su",
+            "/chinh-tri",
+            "/kinh-te",
+            "/xa-hoi-phap-luat",
+            "/quoc-phong-an-ninh",
+            "/the-gioi",
+            "/giao-duc",
+            "/y-te",
+            "/cong-nghe",
+            "/chuyen-doi-so",
+            "/van-hoa-giai-tri",
+            "/the-thao",
+            "/du-lich",
+        ),
+        deny_category_prefixes=(
+            "/video",
+            "/xem-bao",
+            "/news",
+            "/khmer",
+            "/bang-gia-quang-cao-bao-in",
+            "/tim-kiem",
+        ),
+        deny_exact_paths=("/",),
+        allowed_article_url_suffixes=(".html",),
+        allowed_article_path_regexes=(r"-a\d+\.html$",),
+    )
+
+
+def _baodaklak_config() -> SiteConfig:
+    """
+    Cấu hình cho https://baodaklak.vn (Báo Đắk Lắk điện tử).
+
+    - Category dạng /{slug}/, có thể có subcategory.
+    - Bài viết thường có URL dạng /{category}/{YYYYMM}/{slug}/.
+    """
+
+    return SiteConfig(
+        key="baodaklak",
+        base_url="https://baodaklak.vn",
+        home_path="/",
+        article_name="baodaklak",
+        category_path_pattern="/{slug}/",
+        max_categories=30,
+        max_articles_per_category=80,
+        allow_category_prefixes=(
+            "/thoi-su",
+            "/chinh-tri",
+            "/kinh-te",
+            "/xa-hoi",
+            "/giao-duc",
+            "/y-te-suc-khoe",
+            "/chinh-sach-xa-hoi",
+            "/phap-luat",
+            "/an-ninh-quoc-phong",
+            "/quoc-te",
+            "/the-thao",
+            "/van-hoa-du-lich-van-hoc-nghe-thuat",
+            "/du-lich",
+            "/khoa-hoc-cong-nghe",
+            "/moi-truong",
+            "/trang-tin-dia-phuong",
+            "/thong-tin-doanh-nghiep-tu-gioi-thieu",
+            "/phong-su-ky-su",
+            "/van-de-ban-doc-quan-tam",
+        ),
+        deny_category_prefixes=(
+            "/multimedia",
+            "/video",
+            "/doc-bao-in",
+            "/tim-kiem",
+        ),
+        deny_exact_paths=("/",),
+        allowed_article_path_regexes=(
+            r"/\d{6}/[^/]+/?$",
+        ),
+        deny_article_prefixes=(
+            "/multimedia",
+            "/video",
+            "/doc-bao-in",
+            "/tim-kiem",
+        ),
+        article_link_selector="a.title5[href]",
+    )
+
+
+def _baodienbienphu_config() -> SiteConfig:
+    """
+    Cấu hình cho https://baodienbienphu.vn.
+
+    - Bài viết có path dạng /tin-bai/{category}/{slug}.
+    - Trang chủ có link bài viết, nhưng trang chuyên mục render client-side,
+      nên dùng trang chủ làm nguồn thu thập bài.
+    """
+
+    return SiteConfig(
+        key="baodienbienphu",
+        base_url="https://baodienbienphu.vn",
+        home_path="/",
+        article_name="baodienbienphu",
+        category_path_pattern="/tin-tuc/{slug}",
+        max_categories=20,
+        max_articles_per_category=12,
+        article_link_selector="a[href*='/tin-bai/']",
+        allowed_article_path_regexes=(
+            r"^/tin-bai/[^/]+/[^/]+/?$",
+        ),
+    )
+
+
+def _baocaobang_config() -> SiteConfig:
+    """
+    Cấu hình cho https://baocaobang.vn (Báo Cao Bằng điện tử).
+
+    - Category chính trên menu có dạng /Thoi-su, /chinh-tri, ...
+    - Bài viết chi tiết có URL đuôi ".html" với slug kết thúc bằng "-<id>.html".
+    """
+
+    return SiteConfig(
+        key="baocaobang",
+        base_url="https://baocaobang.vn",
+        home_path="/",
+        article_name="baocaobang",
+        max_categories=30,
+        max_articles_per_category=80,
+        allow_category_prefixes=(
+            "/Thoi-su",
+            "/chinh-tri",
+            "/kinh-te",
+            "/xa-hoi",
+            "/van-hoa",
+            "/the-thao",
+            "/Khoa-hoc-Cong-nghe",
+            "/Quoc-phong-An-ninh",
+            "/Suc-khoe-Doi-song",
+            "/The-gioi",
+            "/Giao-duc",
+            "/Ky-Phong-su",
+        ),
+        deny_category_prefixes=(
+            "/Truyenhinh-Internet",
+            "/Thong-tin-Toa-soan",
+            "/Phongsuanh",
+            "/Du-bao-thoi-tiet-Cao-Bang",
+            "/tin-noi-bat",
+            "/tin-tieu-diem",
+            "/multimedia",
+            "/search",
+            "/tags",
+        ),
+        deny_exact_paths=("/",),
+        allowed_article_url_suffixes=(".html",),
+        allowed_article_path_regexes=(r"-\d+\.html$",),
+        article_link_selector="article a[href], h3 a[href], h2 a[href], .card-title a[href]",
+    )
+
+
+def _baobinhduong_config() -> SiteConfig:
+    """
+    Cấu hình cho https://baobinhduong.vn.
+
+    - Category chính có path dạng /chinh-tri, /kinh-te, ...
+    - Bài viết có URL đuôi .html với slug "-a<id>.html".
+    - Danh sách bài trong category dùng block .article-item và tiêu đề h3 > a.
+    """
+
+    return SiteConfig(
+        key="baobinhduong",
+        base_url="https://baobinhduong.vn",
+        home_path="/",
+        article_name="baobinhduong",
+        max_categories=30,
+        max_articles_per_category=80,
+        allow_category_prefixes=(
+            "/chinh-tri",
+            "/kinh-te",
+            "/xa-hoi",
+            "/the-thao",
+            "/giao-duc",
+            "/phap-luat",
+            "/y-te",
+            "/nhip-song-so",
+            "/phan-tich",
+            "/ban-doc",
+            "/du-lich",
+            "/quoc-te",
+            "/toi-yeu-binh-duong",
+        ),
+        deny_category_prefixes=(
+            "/video",
+            "/podcast",
+            "/infographic",
+            "/longform",
+            "/xem-albumphoto",
+            "/xem-bao",
+            "/en",
+            "/cn",
+            "/tim-kiem",
+            "/su-kien",
+        ),
+        deny_exact_paths=("/",),
+        allowed_article_url_suffixes=(".html",),
+        allowed_article_path_regexes=(r"-a\d+\.html$",),
+        article_link_selector=".article-item a[href], h3 a[href], h2 a[href]",
+    )
+
+
+def _baobacninhtv_config() -> SiteConfig:
+    """
+    Cấu hình cho https://baobacninhtv.vn (Báo Bắc Ninh).
+
+    - Category dạng /{slug}.
+    - Bài viết có URL đuôi .bbg với pattern "-postid<id>.bbg".
+    - Sapo trong div.news_detail_sapo.
+    """
+
+    return SiteConfig(
+        key="baobacninhtv",
+        base_url="https://baobacninhtv.vn",
+        home_path="/",
+        article_name="baobacninhtv",
+        max_categories=30,
+        max_articles_per_category=80,
+        allow_category_prefixes=(
+            "/chinh-tri",
+            "/xay-dung-dang",
+            "/chinh-tri-bao-ve-nen-tang-tu-tuong-cua-dang",
+            "/chinh-tri-nhan-su-moi",
+            "/kinh-te",
+            "/xa-hoi",
+            "/doi-song",
+            "/phap-luat",
+            "/an-toan-giao-thong",
+            "/suc-khoe",
+            "/giao-duc",
+            "/quoc-phong",
+            "/the-gioi",
+            "/the-thao",
+            "/the-thao-nhat-ky-sea-games-33",
+            "/nhip-song-tre",
+            "/nhip-song-tre-guong-mat",
+            "/nhip-song-tre-thanh-nien-cong-nhan",
+            "/dat-va-nguoi-bac-ninh",
+            "/van-hoa-goc-cho-nguoi-yeu-tho",
+            "/van-hoa-tac-gia-tac-pham",
+            "/phong-tuc-tap-quan",
+            "/sukien",
+            "/mon-ngon",
+            "/bacgiang-van-hoa",
+            "/moi-nhat",
+        ),
+        deny_category_prefixes=(
+            "/multimedia",
+            "/podcast",
+            "/photo",
+            "/videos",
+            "/infographics",
+            "/thong-tin-quang-cao",
+            "/bacgiang-emagazine",
+            "/bg2",
+            "/bando",
+        ),
+        deny_exact_paths=("/",),
+        allowed_locales=("vi", "vi-vn"),
+        allowed_article_url_suffixes=(".bbg",),
+        allowed_article_path_regexes=(r"-postid\d+\.bbg$",),
+        deny_article_prefixes=(
+            "/bg/infographics",
+            "/photo",
+            "/videos",
+            "/podcast",
+        ),
+        article_link_selector="a.font-tin-doc[href]",
+        description_selectors=(
+            "div.news_detail_sapo p",
+            "div.news_detail_sapo",
         ),
     )
 
@@ -948,6 +1289,69 @@ def _vov_config() -> SiteConfig:
     )
 
 
+def _baohaiphong_config() -> SiteConfig:
+    """
+    Cấu hình cơ bản cho https://baohaiphong.vn.
+
+    - Category chính có path dạng /chinh-tri, /kinh-te, /xa-hoi, ...
+    - Bài viết chi tiết có URL đuôi .html (slug-id.html).
+    - Danh sách bài trong category thường dùng thẻ h3 > a.
+    """
+
+    return SiteConfig(
+        key="baohaiphong",
+        base_url="https://baohaiphong.vn",
+        home_path="/",
+        article_name="baohaiphong",
+        max_categories=40,
+        max_articles_per_category=80,
+        allow_category_prefixes=(
+            "/chinh-tri",
+            "/kinh-te",
+            "/xa-hoi",
+            "/goc-nhin",
+            "/khoa-hoc-giao-duc",
+            "/phap-luat",
+            "/bat-dong-san",
+            "/van-hoa-giai-tri",
+            "/van-nghe",
+            "/quoc-te",
+            "/the-thao",
+            "/doi-song",
+            "/dat-va-nguoi-xu-dong",
+            "/ban-doc",
+            "/du-lich",
+            "/su-kien-qua-anh",
+            "/xe",
+        ),
+        deny_category_prefixes=(
+            "/video",
+            "/emagazine",
+            "/podcast",
+            "/infographic",
+            "/thong-tin-quang-cao",
+            "/an-pham",
+            "/thoi-tiet-hai-phong",
+        ),
+        deny_exact_paths=("/",),
+        allowed_article_url_suffixes=(".html",),
+        deny_article_prefixes=(
+            "/an-pham",
+            "/video",
+            "/podcast",
+            "/emagazine",
+            "/infographic",
+            "/thong-tin-quang-cao",
+        ),
+        article_link_selector="h3 a[href]",
+        description_selectors=(
+            "p.sc-longform-header-sapo",
+            "p.block-sc-sapo",
+            ".sc-longform-header-sapo",
+        ),
+    )
+
+
 def _baodanang_config() -> SiteConfig:
     """
     Cấu hình cơ bản cho https://baodanang.vn.
@@ -995,6 +1399,175 @@ def _baodanang_config() -> SiteConfig:
     )
 
 
+def _bocongan_config() -> SiteConfig:
+    """
+    Cấu hình cho https://bocongan.gov.vn (Cổng Thông tin điện tử Bộ Công an).
+
+    - Category chính có path dạng /chuyen-muc/<slug>.
+    - Bài viết chi tiết có URL dạng /bai-viet/<slug>-<id>.
+    - Sapo/description nằm trong đoạn văn có class text-bca-gray-700.
+    """
+
+    return SiteConfig(
+        key="bocongan",
+        base_url="https://bocongan.gov.vn",
+        home_path="/",
+        category_path_pattern="/chuyen-muc/{slug}",
+        article_name="bocongan",
+        max_categories=30,
+        max_articles_per_category=80,
+        allow_category_prefixes=(
+            "/chuyen-muc",
+        ),
+        deny_category_prefixes=(
+            "/gioi-thieu",
+            "/albums",
+            "/videos",
+            "/podcast",
+            "/longform",
+            "/e-magazine",
+            "/infographic",
+            "/hoi-dap",
+            "/truyen-thong",
+            "/chinh-sach-phap-luat",
+            "/interpol",
+        ),
+        deny_exact_paths=(
+            "/",
+        ),
+        allowed_article_path_regexes=(
+            r"^/bai-viet/.+-\d+/?$",
+        ),
+        article_link_selector="a[href^='/bai-viet/']",
+        description_selectors=(
+            "p.text-justify.mb-\\[22px\\].text-bca-gray-700.font-medium.lg\\:text-\\[20px\\]",
+            "p.text-justify.text-bca-gray-700.font-medium",
+            "p.text-bca-gray-700",
+        ),
+    )
+
+
+def _cand_config() -> SiteConfig:
+    """
+    Cấu hình cho https://cand.com.vn (Báo Công an nhân dân).
+
+    - Category dạng /{slug}/.
+    - Bài viết có URL kết thúc bằng "-i<id>/".
+    """
+
+    return SiteConfig(
+        key="cand",
+        base_url="https://cand.com.vn",
+        home_path="/",
+        category_path_pattern="/{slug}/",
+        article_name="cand",
+        max_categories=40,
+        max_articles_per_category=80,
+        deny_category_prefixes=(
+            "/topic",
+            "/rssfeed",
+            "/eMagazine",
+            "/emagazine",
+            "/video",
+            "/Video",
+            "/clip",
+            "/Clip",
+            "/search",
+            "/tags",
+            "/tag",
+        ),
+        deny_exact_paths=(
+            "/",
+        ),
+        allowed_locales=("vi", "vi-vn"),
+        allowed_article_path_regexes=(r"-i\d+/?$",),
+        article_link_selector=".box-title a[href]",
+        description_selectors=(
+            "div.box-des-detail",
+        ),
+    )
+
+
+def _modgov_config() -> SiteConfig:
+    """
+    Cấu hình cho https://mod.gov.vn (Cổng TTĐT Bộ Quốc phòng).
+
+    - Category dùng dạng /home/news?... với query param urile=wcm:path:...
+    - Bài viết chi tiết dùng /home/detail?... với query param urile=wcm:path:...
+    """
+
+    return SiteConfig(
+        key="modgov",
+        base_url="https://mod.gov.vn",
+        home_path="/home",
+        article_name="modgov",
+        max_categories=20,
+        max_articles_per_category=80,
+        allow_category_prefixes=(
+            "/home/news",
+            "/home/news/td",
+            "/home/news/event",
+        ),
+        deny_exact_paths=(
+            "/",
+        ),
+        allowed_article_path_regexes=(r"^/home/detail$",),
+        keep_query_params=True,
+    )
+
+
+def _qdnd_config() -> SiteConfig:
+    """
+    Cấu hình cho https://www.qdnd.vn (Báo Quân đội nhân dân).
+
+    - Category chính thường có path dạng /chinh-tri, /quoc-phong-an-ninh, ...
+    - Bài viết có slug kết thúc bằng ID số, ví dụ "...-1020977".
+    - Sapo nằm trong div.post-summary.
+    """
+
+    return SiteConfig(
+        key="qdnd",
+        base_url="https://www.qdnd.vn",
+        home_path="/",
+        article_name="qdnd",
+        max_categories=40,
+        max_articles_per_category=80,
+        allow_category_prefixes=(
+            "/chinh-tri",
+            "/quoc-phong-an-ninh",
+            "/da-phuong-tien",
+            "/bao-ve-nen-tang-tu-tuong-cua-dang",
+            "/phong-chong-dien-bien-hoa-binh",
+            "/phong-chong-tu-dien-bien-tu-chuyen-hoa",
+            "/kinh-te",
+            "/xa-hoi",
+            "/van-hoa",
+            "/phong-su-dieu-tra",
+            "/giao-duc-khoa-hoc",
+            "/phap-luat",
+            "/ban-doc",
+            "/y-te",
+            "/the-thao",
+            "/quoc-te",
+            "/du-lich",
+            "/cung-ban-luan",
+            "/tien-toi-dai-hoi-xiv-cua-dang",
+        ),
+        deny_category_prefixes=(
+            "/audio",
+            "/video",
+            "/Lf",
+        ),
+        deny_exact_paths=(
+            "/",
+        ),
+        allowed_locales=("vi", "vi-vn"),
+        allowed_article_path_regexes=(r"-\d+/?$",),
+        article_link_selector=".list-news a[href]",
+        description_selectors=("div.post-summary",),
+    )
+
+
 def get_supported_sites() -> Dict[str, SiteConfig]:
     """Trả về dict {site_key: SiteConfig} cho tất cả các trang được hỗ trợ."""
     sites: Dict[str, SiteConfig] = {}
@@ -1036,12 +1609,23 @@ def get_supported_sites() -> Dict[str, SiteConfig]:
         _baodongnai_config(),
         _bnews_config(),
         _dantri_config(),
+        _baocantho_config(),
+        _baodaklak_config(),
+        _baodienbienphu_config(),
+        _baocaobang_config(),
+        _baobinhduong_config(),
+        _baobacninhtv_config(),
         _baocamau_config(),
         _baodongkhoi_config(),
         _dongkhoi_baovinhlong_config(),
         _znews_config(),
         _vov_config(),
+        _baohaiphong_config(),
         _baodanang_config(),
+        _bocongan_config(),
+        _cand_config(),
+        _modgov_config(),
+        _qdnd_config(),
     ):
         sites[cfg.key] = cfg
     return sites

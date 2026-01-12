@@ -45,6 +45,14 @@ ARTICLE_SITE_CONFIG: Dict[str, ArticleSiteConfig] = {
         ),
         main_container_keywords=("content", "detail", "article", "entry", "main"),
     ),
+    "bocongan.gov.vn": ArticleSiteConfig(
+        description_selectors=(
+            "p.text-justify.mb-\\[22px\\].text-bca-gray-700.font-medium.lg\\:text-\\[20px\\]",
+            "p.text-justify.text-bca-gray-700.font-medium",
+            "p.text-bca-gray-700",
+        ),
+        category_extractors=("bocongan_category",),
+    ),
     "genk.vn": ArticleSiteConfig(
         main_container_selectors=("div#ContentDetail",),
         category_extractors=("genk_category",),
@@ -131,6 +139,23 @@ ARTICLE_SITE_CONFIG: Dict[str, ArticleSiteConfig] = {
         ),
         category_extractors=("dantri_category",),
     ),
+    "baobacninhtv.vn": ArticleSiteConfig(
+        description_selectors=(
+            "div.news_detail_sapo p",
+            "div.news_detail_sapo",
+        ),
+        main_container_selectors=(
+            ".news-details__content.link_content",
+        ),
+        main_container_keywords=(
+            "news-details__content",
+            "link_content",
+        ),
+        excluded_section_selectors=(
+            ".news-related__list",
+        ),
+        category_extractors=("baobacninhtv_category",),
+    ),
     "congly.vn": ArticleSiteConfig(
         main_container_selectors=(
             "div.b-maincontent",
@@ -151,6 +176,23 @@ ARTICLE_SITE_CONFIG: Dict[str, ArticleSiteConfig] = {
         excluded_section_selectors=(
             "div.c-box:has(.c-box__title__name:-soup-contains('Bài liên quan'))",
             "div.c-box:has(.c-box__title__name:-soup-contains('Bài đọc tiếp'))",
+        ),
+    ),
+    "baohaiphong.vn": ArticleSiteConfig(
+        description_selectors=(
+            "p.sc-longform-header-sapo",
+            "p.block-sc-sapo",
+            ".sc-longform-header-sapo",
+        ),
+        main_container_selectors=(
+            "div.b-maincontent .entry",
+            ".b-maincontent .entry",
+            "div.b-maincontent",
+        ),
+        main_container_keywords=("b-maincontent", "entry", "maincontent"),
+        excluded_section_selectors=(
+            "div.sc-longform-header",
+            "div.sc-empty-layer",
         ),
     ),
     "baodanang.vn": ArticleSiteConfig(
@@ -202,6 +244,67 @@ ARTICLE_SITE_CONFIG: Dict[str, ArticleSiteConfig] = {
         main_container_keywords=("content-detail", "td-post-content", "content"),
         category_extractors=("baodongnai_category",),
         inline_media_only=True,
+    ),
+    "baodaklak.vn": ArticleSiteConfig(
+        description_selectors=(
+            "div.article_content div.content#content > p > strong",
+            "div.article_content .content > p > strong",
+            "div.article_content p > strong",
+        ),
+        main_container_selectors=(
+            "div.article_content div.content#content",
+            "div.article_content #content",
+            "div.article_content",
+        ),
+        main_container_keywords=("article_content", "content"),
+        excluded_section_selectors=(
+            "h1.media-heading",
+            "div.date",
+            "ul.social",
+            "div.bd02",
+        ),
+        category_extractors=("baodaklak_category",),
+        tag_extractors=("baodaklak_tags",),
+    ),
+    "baodienbienphu.vn": ArticleSiteConfig(
+        main_container_selectors=(
+            "div.editor-content",
+            ".editor-content",
+        ),
+        main_container_keywords=("editor-content", "detail-news"),
+        category_extractors=("baodienbienphu_category",),
+    ),
+    "baocantho.com.vn": ArticleSiteConfig(
+        main_container_selectors=(
+            "#newscontents .content-fck",
+            ".content-fck",
+            "#newscontents",
+        ),
+    ),
+    "baocaobang.vn": ArticleSiteConfig(
+        description_selectors=(
+            "div#content-detail > p > strong",
+            "div#content-detail p strong",
+            "div#content-detail strong",
+        ),
+        main_container_selectors=(
+            "div#content-detail",
+        ),
+        main_container_keywords=("content-detail",),
+        excluded_section_selectors=(
+            "div.block-news-list:has(.main-title:-soup-contains('Cùng chuyên mục'))",
+        ),
+    ),
+    "baobinhduong.vn": ArticleSiteConfig(
+        title_selectors=("h1.title", "h1"),
+        main_container_selectors=(
+            "#contentNews",
+            "#contentNews .singular-content",
+            "div#contentNews",
+            "div#contentNews .singular-content",
+        ),
+        main_container_keywords=("contentNews", "singular-content", "content"),
+        category_extractors=("baobinhduong_category",),
     ),
     "nguoiquansat.vn": ArticleSiteConfig(
         main_container_selectors=(
@@ -385,6 +488,30 @@ ARTICLE_SITE_CONFIG: Dict[str, ArticleSiteConfig] = {
             "#innerarticle",
         ),
         category_extractors=("znews_category",),
+    ),
+    "cand.com.vn": ArticleSiteConfig(
+        description_selectors=(
+            "div.box-des-detail",
+        ),
+        main_container_selectors=(
+            "div.detail-content-body",
+        ),
+        main_container_keywords=("detail-content-body", "content"),
+        excluded_section_selectors=(
+            ".contref.simplebox.thumbnail",
+            ".contref.simplebox.vertical",
+        ),
+        category_extractors=("cand_category",),
+    ),
+    "qdnd.vn": ArticleSiteConfig(
+        description_selectors=(
+            "div.post-summary p.logo-online",
+            "div.post-summary",
+        ),
+        main_container_selectors=(
+            "div.post-content",
+        ),
+        category_extractors=("qdnd_category",),
     ),
 }
 

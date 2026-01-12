@@ -124,6 +124,10 @@ class ArticleExtractor:
         return None
 
     def _extract_description(self, soup: BeautifulSoup) -> str | None:
+        if self.site_config and self.site_config.description_selectors:
+            description = _first_text(soup, self.site_config.description_selectors)
+            if description:
+                return _clean_description_text(description)
         selectors = [
             "meta[name='description']",
             "meta[property='og:description']",
@@ -134,11 +138,6 @@ class ArticleExtractor:
         # logger.info("description %s", description)
         if description:
             return _clean_description_text(description)
-        # logger.info("siteconfig %s", self.site_config)
-        if self.site_config and self.site_config.description_selectors:
-            description = _first_text(soup, self.site_config.description_selectors)
-            if description:
-                return _clean_description_text(description)
         return None
 
     def _extract_summary(self, soup: BeautifulSoup) -> str | None:
@@ -1582,6 +1581,15 @@ def _extract_vietnamnet_tags(soup: BeautifulSoup) -> List[str]:
     return collected
 
 
+def _extract_baodaklak_tags(soup: BeautifulSoup) -> List[str]:
+    collected: List[str] = []
+    for link in soup.select("div.tag_list a[href]"):
+        text = _normalize_whitespace(link.get_text(" ", strip=True))
+        if text:
+            collected.append(text)
+    return collected
+
+
 def _extract_kenh14_category(_: str, soup: BeautifulSoup) -> Tuple[str | None, str | None]:
     active_tab = soup.select_one("li.kbwsli.active")
     if active_tab:
@@ -2126,6 +2134,170 @@ def _extract_znews_category(base_url: str, soup: BeautifulSoup) -> Tuple[str | N
     return category_id, text_value
 
 
+def _extract_baobinhduong_category(
+    base_url: str, soup: BeautifulSoup
+) -> Tuple[str | None, str | None]:
+    breadcrumb = soup.select_one("div.breadcrumb-news-detail")
+    if not breadcrumb:
+        return None, None
+
+    category_id: str | None = None
+    category_name: str | None = None
+
+    for link in breadcrumb.select("a[href]"):
+        href = link.get("href")
+        if href in (None, "", "/", "#"):
+            continue
+        text_value = _normalize_whitespace(link.get_text(" ", strip=True))
+        if text_value.startswith(">"):
+            text_value = text_value.lstrip(">").strip()
+        if text_value:
+            category_name = text_value
+        slug = _slug_from_url(urljoin(base_url, href))
+        if slug:
+            category_id = slug
+
+    if not category_id and not category_name:
+        return None, None
+    return category_id, category_name
+
+
+def _extract_baobacninhtv_category(
+    base_url: str, soup: BeautifulSoup
+) -> Tuple[str | None, str | None]:
+    link = soup.select_one("a.post-meta[href]")
+    if not link:
+        return None, None
+
+    text_value = _normalize_whitespace(link.get_text(" ", strip=True))
+    href = link.get("href")
+    category_id = _slug_from_url(urljoin(base_url, href)) if href else None
+
+    if not category_id and not text_value:
+        return None, None
+
+    return category_id, text_value
+
+
+def _extract_baodaklak_category(
+    base_url: str, soup: BeautifulSoup
+) -> Tuple[str | None, str | None]:
+    link = soup.select_one("a.maincatetitle[href]")
+    if not link:
+        return None, None
+
+    text_value = _normalize_whitespace(link.get_text(" ", strip=True))
+    href = link.get("href")
+    category_id = _slug_from_url(urljoin(base_url, href)) if href else None
+
+    if not category_id and not text_value:
+        return None, None
+
+    return category_id, text_value
+
+
+def _extract_baodienbienphu_category(
+    base_url: str, soup: BeautifulSoup
+) -> Tuple[str | None, str | None]:
+    link = soup.select_one("#detail-news a[href*='/tin-tuc/']")
+    if not link:
+        return None, None
+
+    text_value = _normalize_whitespace(link.get_text(" ", strip=True))
+    href = link.get("href")
+    category_id = _slug_from_url(urljoin(base_url, href)) if href else None
+
+    if not category_id and not text_value:
+        return None, None
+
+    return category_id, text_value
+
+
+def _extract_bocongan_category(
+    _: str, soup: BeautifulSoup
+) -> Tuple[str | None, str | None]:
+    label_nodes = soup.select(
+        "a[href*='/chuyen-muc/'] .text-bca-main-01.hover\\:text-bca-main-01"
+    )
+    if not label_nodes:
+        label_nodes = soup.select("a[href*='/chuyen-muc/'] .text-bca-main-01")
+    if label_nodes:
+        for node in label_nodes:
+            link = node.find_parent("a")
+            if not link:
+                continue
+            category_name = _normalize_whitespace(node.get_text(" ", strip=True))
+            category_id = _slug_from_url(link.get("href")) or _slugify(category_name)
+            return category_id, category_name
+
+    links = soup.select("a.text-bca-main-01.hover\\:text-bca-main-01")
+    if not links:
+        links = soup.select("a.text-bca-main-01")
+    if not links:
+        return None, None
+
+    best_link = None
+    for link in links:
+        href = link.get("href") or ""
+        if "/chuyen-muc/" in href:
+            best_link = link
+            break
+    if not best_link:
+        best_link = links[-1]
+
+    category_name = _normalize_whitespace(best_link.get_text(" ", strip=True))
+    category_id = _slug_from_url(best_link.get("href")) or _slugify(category_name)
+    return category_id, category_name
+
+
+def _extract_cand_category(
+    base_url: str, soup: BeautifulSoup
+) -> Tuple[str | None, str | None]:
+    breadcrumb = soup.select_one(".uk-breadcrumb")
+    if not breadcrumb:
+        return None, None
+
+    links = breadcrumb.find_all("a", href=True)
+    if not links:
+        return None, None
+
+    link = links[-1]
+    category_name = _normalize_whitespace(link.get_text(" ", strip=True))
+    href = link.get("href")
+    category_id = _slug_from_url(urljoin(base_url, href)) if href else None
+
+    if not category_id and not category_name:
+        return None, None
+
+    return category_id or _slugify(category_name), category_name
+
+
+def _extract_qdnd_category(
+    base_url: str, soup: BeautifulSoup
+) -> Tuple[str | None, str | None]:
+    head = soup.select_one(".bgbrdm .brcrum-title .head")
+    if not head:
+        return None, None
+    links = head.find_all("a", href=True)
+    if not links:
+        return None, None
+    link_texts = [
+        _normalize_whitespace(link.get_text(" ", strip=True))
+        for link in links
+        if _normalize_whitespace(link.get_text(" ", strip=True))
+    ]
+    category_name = " > ".join(link_texts) if link_texts else None
+
+    last_link = links[-1]
+    href = last_link.get("href")
+    category_id = _slug_from_url(urljoin(base_url, href)) if href else None
+
+    if not category_id and not category_name:
+        return None, None
+
+    return category_id or _slugify(category_name), category_name
+
+
 _CATEGORY_EXTRACTORS: dict[str, Callable[[str, BeautifulSoup], Tuple[str | None, str | None]]] = {
     "genk_category": _extract_genk_category,
     "kenh14_category": _extract_kenh14_category,
@@ -2144,12 +2316,20 @@ _CATEGORY_EXTRACTORS: dict[str, Callable[[str, BeautifulSoup], Tuple[str | None,
     "vietnamnet_category": _extract_vietnamnet_category,
     "dantri_category": _extract_dantri_category,
     "znews_category": _extract_znews_category,
+    "baobinhduong_category": _extract_baobinhduong_category,
+    "baobacninhtv_category": _extract_baobacninhtv_category,
+    "baodaklak_category": _extract_baodaklak_category,
+    "baodienbienphu_category": _extract_baodienbienphu_category,
+    "bocongan_category": _extract_bocongan_category,
+    "cand_category": _extract_cand_category,
+    "qdnd_category": _extract_qdnd_category,
 }
 
 _TAG_EXTRACTORS: dict[str, Callable[[BeautifulSoup], List[str]]] = {
     "kenh14_tags": _extract_kenh14_tags,
     "vneconomy_tags": _extract_vneconomy_tags,
     "vietnamnet_tags": _extract_vietnamnet_tags,
+    "baodaklak_tags": _extract_baodaklak_tags,
 }
 
 

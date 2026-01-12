@@ -18,7 +18,14 @@ baodongkhoi
 baoxaydung
 hanoimoi
 sggp
-
+baodanang
+baihaiphong
+baocantho
+baobacninhtv
+bocongan
+cand
+modgov(boquocphong)
+qdnd
 
 baodautu
 vneconomy
@@ -48,3 +55,22 @@ vtcnews
 Pháp Luật TP.HCM 
 VOV
 Lao Động
+
+
+
+
+
+------------------------cron-job----------------------------
+0,30 * * * * cd /home/dev/BA_workspace/crawl_lastest_news && flock -n /tmp/crawl_batch_0.lock .venv/bin/python main.py --sites 24h cafef dantri kenh14 nguoilaodong soha --workers 8 --database-url "postgresql+psycopg2://crawl:crawl@localhost:15432/lastest_news" > /dev/null 2>&1
+
+5,35 * * * * cd /home/dev/BA_workspace/crawl_lastest_news && flock -n /tmp/crawl_batch_1.lock .venv/bin/python main.py --sites thanhnien tienphong tuoitre vietnambiz vietnamnet  --workers 8 --database-url "postgresql+psycopg2://crawl:crawl@localhost:15432/lastest_news" > /dev/null 2>&1
+
+15,45 * * * * cd /home/dev/BA_workspace/crawl_lastest_news && flock -n /tmp/crawl_batch_3.lock .venv/bin/python main.py --sites vietnamplus vnexpress vtcnews vtv znewsznews --workers 8 --database-url "postgresql+psycopg2://crawl:crawl@localhost:15432/lastest_news" > /dev/null 2>&1
+
+10,40 * * * * cd /home/dev/BA_workspace/crawl_lastest_news && flock -n /tmp/crawl_batch_2.lock .venv/bin/python main.py --sites baophapluat qdnd cand bocongan modgov --workers 8 --database-url "postgresql+psycopg2://crawl:crawl@localhost:15432/lastest_news" > /dev/null 2>&1
+
+
+
+
+
+
