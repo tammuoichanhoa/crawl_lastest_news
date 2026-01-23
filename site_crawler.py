@@ -2,22 +2,43 @@ from __future__ import annotations
 
 import logging
 import re
+import ssl
 import time
+import unicodedata
+from html import unescape
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Dict, Iterable, List, Optional, Sequence, Set
-from urllib.parse import parse_qs, urljoin, urlparse, urlunparse
+from urllib.parse import parse_qs, unquote as url_unquote, urljoin, urlparse, urlunparse
 
 import requests
 from bs4 import BeautifulSoup, Tag
+from requests.adapters import HTTPAdapter
 from sqlalchemy.orm import Session
 
 from .config import SiteConfig
 from .db.models import Article, ArticleImage, ArticleVideo
-from .crawler.article import ArticleExtractor, _is_in_excluded_section, _prettify_slug
+from .crawler.article import (
+    ArticleExtractor,
+    _is_in_excluded_section,
+    _prettify_slug,
+    _render_moha_article_html,
+    _render_mof_article_html,
+)
 
 
 LOGGER = logging.getLogger(__name__)
+
+_MOHA_API_BASE = "https://api-portal.moha.gov.vn/api/Public"
+_MOF_API_BASE = "https://www.mof.gov.vn/api"
+_MOF_ROOT_SLUG = "bo-tai-chinh"
+_MOHA_MENU_DETAIL_ID = "2794"
+_MOHA_ID_RE = re.compile(r"---id(?P<id>\d+)", re.IGNORECASE)
+_MOHA_FALLBACK_CATEGORIES = (
+    ("12", "/chuyen-muc/tin-hoat-dong-cua-bo---id12", "Tin noi vu"),
+    ("13", "/chuyen-muc/tin-tong-hop---id13", "Tin tong hop"),
+    ("14", "/chuyen-muc/diem-tin-dia-phuong-nganh-noi-vu---id14", "Tin dia phuong - Co so"),
+)
 
 
 @dataclass(slots=True)
@@ -47,17 +68,35 @@ class SkipArticle(Exception):
     """Raised when a crawled article should be ignored."""
 
 
+class _SiteSSLAdapter(HTTPAdapter):
+    def __init__(self, ssl_context: ssl.SSLContext) -> None:
+        self.ssl_context = ssl_context
+        super().__init__()
+
+    def init_poolmanager(self, *args, **kwargs):
+        kwargs["ssl_context"] = self.ssl_context
+        return super().init_poolmanager(*args, **kwargs)
+
+    def proxy_manager_for(self, *args, **kwargs):
+        kwargs["ssl_context"] = self.ssl_context
+        return super().proxy_manager_for(*args, **kwargs)
+
+
 class RateLimitedHttpClient:
     """Wrapper quanh requests.Session có delay giữa các request."""
 
     def __init__(
         self,
         *,
+        base_url: str | None = None,
         delay_seconds: float = 0.5,
         timeout: int = 20,
         max_retries: int = 2,
         retry_backoff: float = 1.0,
+        blocked_markers: Optional[Sequence[str]] = None,
         headers: Optional[Dict[str, str]] = None,
+        allow_legacy_ssl: bool = False,
+        allow_weak_dh_ssl: bool = False,
     ) -> None:
         self._session = requests.Session()
         self._delay = max(float(delay_seconds), 0.0)
@@ -65,6 +104,9 @@ class RateLimitedHttpClient:
         self._max_retries = max(int(max_retries), 0)
         self._retry_backoff = max(float(retry_backoff), 0.0)
         self._next_request_ts = 0.0
+        self._blocked_markers = [
+            marker.lower() for marker in (blocked_markers or []) if marker
+        ]
         self._headers = {
             "User-Agent": (
                 "latest-news-crawler/0.1 (+https://example.local)"
@@ -74,6 +116,52 @@ class RateLimitedHttpClient:
         }
         if headers:
             self._headers.update(headers)
+        self._configure_ssl(
+            base_url=base_url,
+            allow_legacy_ssl=allow_legacy_ssl,
+            allow_weak_dh_ssl=allow_weak_dh_ssl,
+        )
+
+    def _configure_ssl(
+        self,
+        *,
+        base_url: str | None,
+        allow_legacy_ssl: bool,
+        allow_weak_dh_ssl: bool,
+    ) -> None:
+        if not base_url:
+            return
+        if not (allow_legacy_ssl or allow_weak_dh_ssl):
+            return
+
+        parsed = urlparse(base_url)
+        if parsed.scheme != "https" or not parsed.netloc:
+            return
+
+        ssl_context = ssl.create_default_context()
+        if allow_legacy_ssl:
+            option = getattr(ssl, "OP_LEGACY_SERVER_CONNECT", None)
+            if option:
+                ssl_context.options |= option
+
+        if allow_weak_dh_ssl:
+            for cipher_string in ("DEFAULT@SECLEVEL=1", "DEFAULT:@SECLEVEL=1"):
+                try:
+                    ssl_context.set_ciphers(cipher_string)
+                    break
+                except ssl.SSLError:
+                    continue
+
+        root_host = parsed.netloc.lower()
+        if root_host.startswith("www."):
+            root_host = root_host[4:]
+        prefixes = (
+            f"https://{root_host}/",
+            f"https://www.{root_host}/",
+        )
+        adapter = _SiteSSLAdapter(ssl_context)
+        for prefix in prefixes:
+            self._session.mount(prefix, adapter)
 
     def get(
         self,
@@ -98,12 +186,34 @@ class RateLimitedHttpClient:
         response = self._request(url, params=params, headers=request_headers)
         return response.json()
 
+    def post_json(
+        self,
+        url: str,
+        *,
+        json_data: Optional[Dict[str, object]] = None,
+        params: Optional[Dict[str, object]] = None,
+        headers: Optional[Dict[str, str]] = None,
+    ) -> Dict[str, object]:
+        request_headers = {"Accept": "application/json, text/plain, */*"}
+        if headers:
+            request_headers.update(headers)
+        response = self._request(
+            url,
+            params=params,
+            headers=request_headers,
+            method="post",
+            json_data=json_data,
+        )
+        return response.json()
+
     def _request(
         self,
         url: str,
         *,
         params: Optional[Dict[str, object]] = None,
         headers: Optional[Dict[str, str]] = None,
+        method: str = "get",
+        json_data: Optional[Dict[str, object]] = None,
     ) -> requests.Response:
         retry_statuses = {429, 500, 502, 503, 504}
         last_exc: Optional[Exception] = None
@@ -113,18 +223,38 @@ class RateLimitedHttpClient:
         for attempt in range(self._max_retries + 1):
             self._respect_delay()
             try:
-                response = self._session.get(
-                    url,
-                    headers=request_headers,
-                    timeout=self._timeout,
-                    params=params,
-                )
+                method_normalized = method.lower()
+                if method_normalized == "post":
+                    response = self._session.post(
+                        url,
+                        headers=request_headers,
+                        timeout=self._timeout,
+                        params=params,
+                        json=json_data,
+                    )
+                else:
+                    response = self._session.get(
+                        url,
+                        headers=request_headers,
+                        timeout=self._timeout,
+                        params=params,
+                    )
             except requests.RequestException as exc:
                 last_exc = exc
                 if attempt >= self._max_retries:
                     raise
                 self._sleep_retry(attempt)
                 continue
+
+            if self._blocked_markers:
+                content = response.text.lower()
+                if any(marker in content for marker in self._blocked_markers):
+                    if attempt >= self._max_retries:
+                        raise requests.HTTPError(
+                            f"Blocked content marker detected for {url}"
+                        )
+                    self._sleep_retry(attempt, response=response)
+                    continue
 
             if response.status_code in retry_statuses and attempt < self._max_retries:
                 self._sleep_retry(attempt, response=response)
@@ -172,8 +302,10 @@ def _normalize_internal_url(
         return None
 
     base = urlparse(base_url)
-    base_host = base.netloc.lower()
-    host = parsed.netloc.lower()
+    base_host = (base.hostname or "").lower()
+    host = (parsed.hostname or "").lower()
+    if not base_host or not host:
+        return None
 
     root_host = base_host[4:] if base_host.startswith("www.") else base_host
     allowed_hosts = {
@@ -185,18 +317,24 @@ def _normalize_internal_url(
         return None
 
     cleaned = parsed._replace(fragment="")
+    if cleaned.port is not None:
+        is_default_https = cleaned.scheme == "https" and cleaned.port == 443
+        is_default_http = cleaned.scheme == "http" and cleaned.port == 80
+        if is_default_https or is_default_http:
+            cleaned = cleaned._replace(netloc=cleaned.hostname or cleaned.netloc)
     if not keep_query:
         cleaned = cleaned._replace(query="")
     return urlunparse(cleaned)
 
 
 def _slug_from_path(path: str) -> str:
-    path = path.strip("/") or "root"
+    path = url_unquote((path or "").strip()).strip("/") or "root"
     first_segment = path.split("/")[0]
     return first_segment or "root"
 
 
 def _slug_from_category_path(path: str, pattern: str) -> str:
+    path = url_unquote((path or "").strip())
     prefix, _, suffix = pattern.partition("{slug}")
     if not prefix and not suffix:
         return _slug_from_path(path)
@@ -261,6 +399,25 @@ def _extract_main_content(soup: BeautifulSoup) -> str:
         text = body.get_text("\n", strip=True)
         return text
     return ""
+
+
+def _moha_html_has_content(html: str) -> bool:
+    if not html:
+        return False
+    soup = BeautifulSoup(html, "html.parser")
+    for selector in (
+        "div.mh-detail-body",
+        "div.mh-detail-content",
+        "div.moha-article__content",
+        "article.moha-article",
+    ):
+        node = soup.select_one(selector)
+        if not node:
+            continue
+        text = node.get_text(" ", strip=True)
+        if text and len(text) >= 50:
+            return True
+    return False
 
 
 def _extract_publish_date(soup: BeautifulSoup) -> Optional[datetime]:
@@ -389,7 +546,20 @@ class NewsSiteCrawler:
     ) -> None:
         self.site = site
         self.session = session
-        self.client = client or RateLimitedHttpClient()
+        if client:
+            self.client = client
+        else:
+            self.client = RateLimitedHttpClient(
+                base_url=site.base_url,
+                delay_seconds=site.delay_seconds or 0.5,
+                timeout=site.timeout_seconds or 20,
+                max_retries=getattr(site, "max_retries", 2),
+                retry_backoff=getattr(site, "retry_backoff", 1.0),
+                blocked_markers=site.blocked_content_markers or None,
+                headers=site.request_headers or None,
+                allow_legacy_ssl=site.allow_legacy_ssl,
+                allow_weak_dh_ssl=site.allow_weak_dh_ssl,
+            )
 
         self._seen_article_urls: Set[str] = set()
         self._inserted = 0
@@ -402,6 +572,11 @@ class NewsSiteCrawler:
             href,
             keep_query=self.site.keep_query_params,
         )
+
+    def _is_denied_category_path(self, path: str) -> bool:
+        if not self.site.deny_category_path_regexes:
+            return False
+        return any(re.search(pattern, path) for pattern in self.site.deny_category_path_regexes)
 
     @property
     def stats(self) -> Dict[str, int]:
@@ -436,7 +611,9 @@ class NewsSiteCrawler:
                     continue
                 self._seen_article_urls.add(url)
                 try:
-                    html = self.client.get(url)
+                    html = self._fetch_article_html(url)
+                    html = self._maybe_fetch_moha_article_html(url, html)
+                    html = self._maybe_fetch_mof_article_html(url, html)
                     parsed = self._parse_article(html, url=url, category=category)
                     self._save_article(parsed)
                     self._inserted += 1
@@ -450,6 +627,83 @@ class NewsSiteCrawler:
                     self._failed += 1
                     LOGGER.exception("Failed to crawl article %s: %s", url, exc)
 
+    def _fetch_article_html(self, url: str) -> str:
+        try:
+            return self.client.get(url)
+        except requests.HTTPError as exc:
+            status_code = exc.response.status_code if exc.response is not None else None
+            if self.site.key == "moh" and (status_code is None or status_code >= 500):
+                for fallback_url in self._moh_article_url_fallbacks(url):
+                    try:
+                        html = self.client.get(fallback_url)
+                    except requests.RequestException:
+                        continue
+                    LOGGER.info(
+                        "Fetched MOH article via fallback URL %s (original %s)",
+                        fallback_url,
+                        url,
+                    )
+                    return html
+            raise
+        except requests.RequestException:
+            if self.site.key != "moh":
+                raise
+            for fallback_url in self._moh_article_url_fallbacks(url):
+                try:
+                    html = self.client.get(fallback_url)
+                except requests.RequestException:
+                    continue
+                LOGGER.info(
+                    "Fetched MOH article via fallback URL %s (original %s)",
+                    fallback_url,
+                    url,
+                )
+                return html
+            raise
+
+    def _moh_article_url_fallbacks(self, url: str) -> List[str]:
+        parsed = urlparse(url)
+        path = parsed.path or "/"
+        variants: List[str] = []
+
+        def add_path(candidate_path: str) -> None:
+            if not candidate_path.startswith("/"):
+                candidate_path = f"/{candidate_path}"
+            candidate_url = urlunparse(parsed._replace(path=candidate_path))
+            if candidate_url != url and candidate_url not in variants:
+                variants.append(candidate_url)
+
+        def strip_locale_segment(candidate_path: str) -> str | None:
+            segments = [seg for seg in candidate_path.split("/") if seg]
+            if not segments:
+                return None
+            locales = {"vi_vn", "vi-vn", "vi"}
+            first = segments[0].lower()
+            if first in locales:
+                return "/" + "/".join(segments[1:]) if len(segments) > 1 else "/"
+            if (
+                len(segments) >= 3
+                and segments[0] == "web"
+                and segments[1] == "guest"
+                and segments[2].lower() in locales
+            ):
+                remainder = segments[:2] + segments[3:]
+                return "/" + "/".join(remainder) if remainder else "/"
+            return None
+
+        stripped = strip_locale_segment(path)
+        if stripped is not None:
+            add_path(stripped)
+
+        if not path.startswith("/web/guest/") and path != "/web/guest":
+            guest_path = "/web/guest" + (path if path.startswith("/") else f"/{path}")
+            add_path(guest_path)
+            stripped_guest = strip_locale_segment(guest_path)
+            if stripped_guest is not None:
+                add_path(stripped_guest)
+
+        return variants
+
     def collect_category_article_links(self) -> Dict[str, List[str]]:
         """Thu thập link bài viết cho từng category (không lưu DB)."""
         categories = self._discover_categories()
@@ -461,6 +715,10 @@ class NewsSiteCrawler:
     def _discover_categories(self) -> List[CategoryInfo]:
         if self.site.key == "baodienbienphu":
             return self._discover_baodienbienphu_categories()
+        if self.site.key == "moha":
+            return self._discover_moha_categories()
+        if self.site.key == "mof":
+            return self._discover_mof_categories()
         if self.site.keep_query_params:
             return self._discover_query_categories()
 
@@ -468,12 +726,29 @@ class NewsSiteCrawler:
         try:
             html = self.client.get(home_url)
         except requests.RequestException as exc:
-            LOGGER.exception("Failed to fetch home page %s: %s", home_url, exc)
-            return []
+            if (self.site.home_path or "/") not in ("", "/"):
+                LOGGER.warning(
+                    "Failed to fetch home page %s: %s. Retrying with root path.",
+                    home_url,
+                    exc,
+                )
+                fallback_url = urljoin(self.site.base_url, "/")
+                try:
+                    html = self.client.get(fallback_url)
+                except requests.RequestException as fallback_exc:
+                    LOGGER.exception(
+                        "Failed to fetch fallback home page %s: %s",
+                        fallback_url,
+                        fallback_exc,
+                    )
+                    return []
+            else:
+                LOGGER.exception("Failed to fetch home page %s: %s", home_url, exc)
+                return []
         soup = BeautifulSoup(html, "html.parser")
 
         base_parsed = urlparse(self.site.base_url)
-        base_host = base_parsed.netloc.lower()
+        base_host = (base_parsed.hostname or base_parsed.netloc).lower()
 
         categories: Dict[str, CategoryInfo] = {}
 
@@ -483,8 +758,8 @@ class NewsSiteCrawler:
                 continue
 
             parsed = urlparse(normalized)
-            host = parsed.netloc.lower()
-            if host != base_host and host != f"www.{base_host}":
+            host = (parsed.hostname or parsed.netloc).lower()
+            if not self._is_allowed_internal_host(host, base_host):
                 continue
 
             path = parsed.path or "/"
@@ -500,21 +775,26 @@ class NewsSiteCrawler:
             slug = _slug_from_category_path(path, self.site.category_path_pattern)
             category_path = self.site.category_path_pattern.format(slug=slug)
 
+            path_for_filter = category_path if self.site.canonicalize_category_paths else path
+
             if self.site.allow_category_prefixes:
                 if not any(
-                    category_path.startswith(prefix)
+                    path_for_filter.startswith(prefix)
                     for prefix in self.site.allow_category_prefixes
                 ):
                     continue
 
             if any(
-                category_path.startswith(prefix)
+                path_for_filter.startswith(prefix)
                 for prefix in self.site.deny_category_prefixes
             ):
                 continue
+            if self._is_denied_category_path(path_for_filter):
+                continue
 
+            canonical_path = category_path if self.site.canonicalize_category_paths else path
             canonical = urlunparse(
-                parsed._replace(path=category_path, query="", fragment="")
+                parsed._replace(path=canonical_path, query="", fragment="")
             )
             if canonical not in categories:
                 categories[canonical] = CategoryInfo(
@@ -532,11 +812,29 @@ class NewsSiteCrawler:
         try:
             html = self.client.get(home_url)
         except requests.RequestException as exc:
-            LOGGER.exception("Failed to fetch home page %s: %s", home_url, exc)
-            return []
+            if (self.site.home_path or "/") not in ("", "/"):
+                LOGGER.warning(
+                    "Failed to fetch home page %s: %s. Retrying with root path.",
+                    home_url,
+                    exc,
+                )
+                fallback_url = urljoin(self.site.base_url, "/")
+                try:
+                    html = self.client.get(fallback_url)
+                except requests.RequestException as fallback_exc:
+                    LOGGER.exception(
+                        "Failed to fetch fallback home page %s: %s",
+                        fallback_url,
+                        fallback_exc,
+                    )
+                    return []
+            else:
+                LOGGER.exception("Failed to fetch home page %s: %s", home_url, exc)
+                return []
 
         soup = BeautifulSoup(html, "html.parser")
-        base_host = urlparse(self.site.base_url).netloc.lower()
+        base_parsed = urlparse(self.site.base_url)
+        base_host = (base_parsed.hostname or base_parsed.netloc).lower()
         categories: Dict[str, CategoryInfo] = {}
 
         for anchor in soup.find_all("a", href=True):
@@ -545,22 +843,24 @@ class NewsSiteCrawler:
                 continue
 
             parsed = urlparse(normalized)
-            host = parsed.netloc.lower()
-            if host != base_host and host != f"www.{base_host}":
+            host = (parsed.hostname or parsed.netloc).lower()
+            if not self._is_allowed_internal_host(host, base_host):
                 continue
 
             path = parsed.path or "/"
             if path in self.site.deny_exact_paths:
                 continue
 
-            if self.site.allow_category_prefixes:
-                if not any(path.startswith(prefix) for prefix in self.site.allow_category_prefixes):
-                    continue
-
-            if any(path.startswith(prefix) for prefix in self.site.deny_category_prefixes):
+            if self.site.key == "moj" and "ItemID=" in parsed.query:
+                # Skip article detail links when collecting category pages for MOJ.
                 continue
 
-            slug = _slug_from_path(path)
+            pattern_prefix, _, _ = self.site.category_path_pattern.partition("{slug}")
+            normalized_prefix = pattern_prefix.rstrip("/")
+            if normalized_prefix and path.rstrip("/") == normalized_prefix:
+                continue
+
+            slug = _slug_from_category_path(path, self.site.category_path_pattern)
             if parsed.query:
                 params = parse_qs(parsed.query)
                 urile = params.get("urile") or []
@@ -569,9 +869,30 @@ class NewsSiteCrawler:
                     if candidate:
                         slug = candidate
 
-            if normalized not in categories:
-                categories[normalized] = CategoryInfo(
-                    url=normalized,
+            category_path = self.site.category_path_pattern.format(slug=slug)
+            path_for_filter = category_path if self.site.canonicalize_category_paths else path
+
+            if self.site.allow_category_prefixes:
+                if not any(
+                    path_for_filter.startswith(prefix)
+                    for prefix in self.site.allow_category_prefixes
+                ):
+                    continue
+
+            if any(
+                path_for_filter.startswith(prefix)
+                for prefix in self.site.deny_category_prefixes
+            ):
+                continue
+            if self._is_denied_category_path(path_for_filter):
+                continue
+
+            canonical_path = category_path if self.site.canonicalize_category_paths else path
+            canonical = urlunparse(parsed._replace(path=canonical_path, fragment=""))
+
+            if canonical not in categories:
+                categories[canonical] = CategoryInfo(
+                    url=canonical,
                     slug=slug,
                     name=anchor.get_text(" ", strip=True) or None,
                 )
@@ -583,64 +904,157 @@ class NewsSiteCrawler:
     def _discover_category_articles(self, category: CategoryInfo) -> List[str]:
         if self.site.key == "baodienbienphu":
             return self._discover_baodienbienphu_articles(category)
+        if self.site.key == "moha":
+            return self._discover_moha_articles(category)
+        if self.site.key == "mof":
+            return self._discover_mof_articles(category)
+
+        def _discover_from_html(html: str) -> List[str]:
+            soup = BeautifulSoup(html, "html.parser")
+
+            candidates: List[str] = []
+            seen: Set[str] = set()
+
+            def _collect(raw_href: str) -> None:
+                href = unescape((raw_href or "").strip())
+                if not href:
+                    return
+                normalized = self._normalize_url(href)
+                if not normalized:
+                    return
+                if normalized in seen:
+                    return
+                seen.add(normalized)
+                candidates.append(normalized)
+
+            if self.site.article_link_selector:
+                for node in soup.select(self.site.article_link_selector):
+                    href = node.get("href")
+                    if href:
+                        _collect(href)
+
+            for node in soup.find_all("article"):
+                anchor = node.find("a", href=True)
+                if anchor:
+                    _collect(anchor["href"])
+
+            for selector in ("h3 a[href]", "h2 a[href]"):
+                for node in soup.select(selector):
+                    href = node.get("href")
+                    if href:
+                        _collect(href)
+
+            for anchor in soup.find_all("a", href=True):
+                href = anchor["href"]
+                normalized = self._normalize_url(href)
+                if not normalized:
+                    continue
+                parsed = urlparse(normalized)
+                if len(parsed.path or "") < 10:
+                    continue
+                _collect(normalized)
+
+            if self.site.key == "moh":
+                for node in soup.select("[data-href], [data-url], [data-link]"):
+                    for attr in ("data-href", "data-url", "data-link"):
+                        value = node.get(attr)
+                        if value:
+                            _collect(value)
+
+                for node in soup.find_all(onclick=True):
+                    onclick = node.get("onclick") or ""
+                    for match in re.findall(r"['\\\"]([^'\\\"]+)['\\\"]", onclick):
+                        if "/-/" in match or "asset_publisher" in match:
+                            _collect(match)
+
+                normalized_html = html.replace("\\/", "/")
+                for match in re.findall(
+                    r"(https?://[^\\s\"'<>]+/-/asset_publisher/[^\\s\"'<>]+/content/[^\\s\"'<>]+)",
+                    normalized_html,
+                    flags=re.IGNORECASE,
+                ):
+                    _collect(match)
+                for match in re.findall(
+                    r"(/[^\\s\"'<>]+/-/asset_publisher/[^\\s\"'<>]+/content/[^\\s\"'<>]+)",
+                    normalized_html,
+                    flags=re.IGNORECASE,
+                ):
+                    _collect(match)
+
+            article_urls = [
+                url
+                for url in candidates
+                if not self._is_denied_article_url(url)
+                and self._has_allowed_article_suffix(url)
+                and self._has_allowed_article_path(url)
+                and self._is_allowed_article_host(url)
+            ]
+
+            if self.site.max_articles_per_category and len(article_urls) > self.site.max_articles_per_category:
+                article_urls = article_urls[: self.site.max_articles_per_category]
+
+            return article_urls
 
         try:
             html = self.client.get(category.url)
         except requests.RequestException as exc:
-            LOGGER.warning("Failed to fetch category page %s: %s", category.url, exc)
-            return []
-        soup = BeautifulSoup(html, "html.parser")
+            fallback_suffixes = getattr(self.site, "category_fetch_fallback_strip_suffixes", ())
+            fallback_suffixes = tuple(
+                suffix.strip().lower()
+                for suffix in (fallback_suffixes or ())
+                if suffix and suffix.strip()
+            )
+            if (
+                isinstance(exc, requests.HTTPError)
+                and getattr(exc, "response", None) is not None
+                and exc.response is not None
+                and exc.response.status_code == 404
+                and fallback_suffixes
+            ):
+                html = ""
+                fallback_url = ""
+                parsed = urlparse(category.url)
+                path = parsed.path or "/"
+                lowered_path = path.lower()
+                for suffix in fallback_suffixes:
+                    if lowered_path.endswith(suffix):
+                        fallback_path = path[: -len(suffix)]
+                        if not fallback_path:
+                            break
+                        fallback_url = urlunparse(
+                            parsed._replace(path=fallback_path, query="", fragment="")
+                        )
+                        if fallback_url == category.url:
+                            break
+                        try:
+                            html = self.client.get(fallback_url)
+                            break
+                        except requests.RequestException:
+                            html = ""
+                if html:
+                    category = CategoryInfo(url=fallback_url, slug=category.slug, name=category.name)
+                else:
+                    LOGGER.warning("Failed to fetch category page %s: %s", category.url, exc)
+                    return []
+            else:
+                LOGGER.warning("Failed to fetch category page %s: %s", category.url, exc)
+                return []
 
-        candidates: List[str] = []
-        seen: Set[str] = set()
+        article_urls = _discover_from_html(html)
 
-        def _collect(href: str) -> None:
-            normalized = self._normalize_url(href)
-            if not normalized:
-                return
-            if normalized in seen:
-                return
-            seen.add(normalized)
-            candidates.append(normalized)
-
-        if self.site.article_link_selector:
-            for node in soup.select(self.site.article_link_selector):
-                href = node.get("href")
-                if href:
-                    _collect(href)
-
-        for node in soup.find_all("article"):
-            anchor = node.find("a", href=True)
-            if anchor:
-                _collect(anchor["href"])
-
-        for selector in ("h3 a[href]", "h2 a[href]"):
-            for node in soup.select(selector):
-                href = node.get("href")
-                if href:
-                    _collect(href)
-
-        for anchor in soup.find_all("a", href=True):
-            href = anchor["href"]
-            normalized = self._normalize_url(href)
-            if not normalized:
-                continue
-            parsed = urlparse(normalized)
-            if len(parsed.path or "") < 10:
-                continue
-            _collect(normalized)
-
-        article_urls = [
-            url
-            for url in candidates
-            if not self._is_denied_article_url(url)
-            and self._has_allowed_article_suffix(url)
-            and self._has_allowed_article_path(url)
-            and self._is_allowed_article_host(url)
-        ]
-
-        if self.site.max_articles_per_category and len(article_urls) > self.site.max_articles_per_category:
-            article_urls = article_urls[: self.site.max_articles_per_category]
+        if not article_urls and self.site.key == "moh":
+            parsed = urlparse(category.url)
+            path = parsed.path or "/"
+            prefix = "/web/guest/"
+            if path.startswith(prefix):
+                fallback_path = "/" + path[len(prefix) :]
+                fallback_url = urlunparse(parsed._replace(path=fallback_path, query="", fragment=""))
+                if fallback_url != category.url:
+                    try:
+                        fallback_html = self.client.get(fallback_url)
+                    except requests.RequestException:
+                        return []
+                    article_urls = _discover_from_html(fallback_html)
 
         return article_urls
 
@@ -736,6 +1150,271 @@ class NewsSiteCrawler:
 
         return results
 
+    def _discover_moha_categories(self) -> List[CategoryInfo]:
+        api_url = f"{_MOHA_API_BASE}/MenuDetail"
+        try:
+            payload = self.client.get_json(api_url, params={"ID": _MOHA_MENU_DETAIL_ID})
+        except requests.RequestException as exc:
+            LOGGER.warning("Failed to fetch moha categories: %s", exc)
+            return []
+
+        if not isinstance(payload, dict):
+            LOGGER.warning("Unexpected moha category payload: %s", payload)
+            return []
+
+        items = payload.get("childs")
+        if not isinstance(items, list):
+            data = payload.get("data")
+            if isinstance(data, dict):
+                items = data.get("childs")
+            if not isinstance(items, list):
+                items = payload.get("Childs") or payload.get("children")
+        if not isinstance(items, list):
+            items = []
+
+        categories: List[CategoryInfo] = []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            raw_url = str(item.get("URL") or "").strip()
+            if not raw_url:
+                continue
+            category_id = self._extract_moha_id(raw_url)
+            if not category_id:
+                continue
+            url = urljoin(self.site.base_url, raw_url)
+            name = str(item.get("TenMenu") or "").strip() or None
+            categories.append(CategoryInfo(url=url, slug=category_id, name=name))
+            if self.site.max_categories and len(categories) >= self.site.max_categories:
+                break
+
+        if categories:
+            return categories
+
+        LOGGER.warning("No moha categories from API payload, using fallback IDs.")
+        for category_id, path, name in _MOHA_FALLBACK_CATEGORIES:
+            url = urljoin(self.site.base_url, path)
+            categories.append(CategoryInfo(url=url, slug=category_id, name=name))
+            if self.site.max_categories and len(categories) >= self.site.max_categories:
+                break
+
+        return categories
+
+    def _discover_moha_articles(self, category: CategoryInfo) -> List[str]:
+        api_url = f"{_MOHA_API_BASE}/PostsByCategory"
+        max_articles = self.site.max_articles_per_category or 0
+        limit = max_articles or 20
+
+        try:
+            payload = self.client.get_json(
+                api_url,
+                params={
+                    "ID": category.slug,
+                    "skip": 0,
+                    "take": limit,
+                    "requireTotalCount": "true",
+                },
+            )
+        except requests.RequestException as exc:
+            LOGGER.warning(
+                "Failed to fetch moha articles for %s: %s",
+                category.slug,
+                exc,
+            )
+            return []
+
+        if not isinstance(payload, dict):
+            LOGGER.warning("Unexpected moha article payload for %s: %s", category.slug, payload)
+            return []
+
+        items = payload.get("data") or []
+        if not isinstance(items, list) or not items:
+            return []
+
+        results: List[str] = []
+        seen: Set[str] = set()
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            article_id = item.get("ID")
+            if not article_id:
+                continue
+            title = str(item.get("TieuDe") or "").strip()
+            slug = self._slugify_moha_title(title) or "bai-viet"
+            url = urljoin(self.site.base_url, f"/tin-tuc/{slug}---id{article_id}")
+            if url in seen:
+                continue
+            seen.add(url)
+            results.append(url)
+            if max_articles and len(results) >= max_articles:
+                break
+
+        return results
+
+    def _discover_mof_categories(self) -> List[CategoryInfo]:
+        api_url = f"{_MOF_API_BASE}/articlecategory/getbyslug"
+        name = None
+        try:
+            payload = self.client.get_json(api_url, params={"slug": _MOF_ROOT_SLUG})
+        except requests.RequestException as exc:
+            LOGGER.warning("Failed to fetch mof root category: %s", exc)
+            payload = None
+
+        if isinstance(payload, dict):
+            data = payload.get("data")
+            if isinstance(data, dict):
+                name = str(data.get("name") or "").strip() or None
+
+        url = urljoin(self.site.base_url, f"/{_MOF_ROOT_SLUG}")
+        return [CategoryInfo(url=url, slug=_MOF_ROOT_SLUG, name=name)]
+
+    def _discover_mof_articles(self, category: CategoryInfo) -> List[str]:
+        api_url = f"{_MOF_API_BASE}/article/reads"
+        max_articles = self.site.max_articles_per_category or 0
+        limit = max_articles or 20
+        payload: Dict[str, object]
+        if category.slug and category.slug != _MOF_ROOT_SLUG:
+            payload = {"categoryId": category.slug}
+        else:
+            payload = {"rootSlug": _MOF_ROOT_SLUG}
+
+        try:
+            response = self.client.post_json(
+                api_url,
+                params={"offset": 0, "limit": limit},
+                json_data=payload,
+            )
+        except requests.RequestException as exc:
+            LOGGER.warning(
+                "Failed to fetch mof articles for %s: %s", category.slug, exc
+            )
+            return []
+
+        if not isinstance(response, dict):
+            LOGGER.warning("Unexpected mof article payload for %s: %s", category.slug, response)
+            return []
+
+        items = response.get("data") or []
+        if not isinstance(items, list) or not items:
+            return []
+
+        results: List[str] = []
+        seen: Set[str] = set()
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            article_slug = str(item.get("slug") or "").strip()
+            if not article_slug:
+                continue
+            root_slug = str(item.get("rootCategorySlug") or _MOF_ROOT_SLUG).strip()
+            category_slug = str(item.get("categorySlug") or "tin-tuc").strip()
+            url = urljoin(
+                self.site.base_url,
+                f"/{root_slug}/{category_slug}/{article_slug}",
+            )
+            if url in seen:
+                continue
+            seen.add(url)
+            results.append(url)
+            if max_articles and len(results) >= max_articles:
+                break
+
+        return results
+
+    def _maybe_fetch_moha_article_html(self, url: str, html: str) -> str:
+        if self.site.key != "moha":
+            return html
+        if not self._should_use_moha_api(url, html):
+            return html
+        article_id = self._extract_moha_id(url)
+        if not article_id:
+            return html
+        try:
+            payload = self.client.get_json(
+                f"{_MOHA_API_BASE}/PostDetail",
+                params={"ID": article_id},
+            )
+        except requests.RequestException as exc:
+            LOGGER.warning("Failed to fetch moha article %s: %s", url, exc)
+            return html
+        api_html = _render_moha_article_html(payload)
+        if api_html and _moha_html_has_content(api_html):
+            return api_html
+        return html
+
+    def _maybe_fetch_mof_article_html(self, url: str, html: str) -> str:
+        if self.site.key != "mof":
+            return html
+        if not self._should_use_mof_api(url, html):
+            return html
+        slug = self._extract_mof_slug(url)
+        if not slug:
+            return html
+        try:
+            payload = self.client.get_json(
+                f"{_MOF_API_BASE}/article/getbyslug",
+                params={"slug": slug},
+            )
+        except requests.RequestException as exc:
+            LOGGER.warning("Failed to fetch mof article %s: %s", url, exc)
+            return html
+        api_html = _render_mof_article_html(payload)
+        return api_html or html
+
+    def _should_use_moha_api(self, url: str, html: str) -> bool:
+        if not self._extract_moha_id(url):
+            return False
+        parsed = urlparse(url)
+        domain = (parsed.hostname or parsed.netloc).lower()
+        if not (domain == "moha.gov.vn" or domain.endswith(".moha.gov.vn")):
+            return False
+        if '<div id="root"></div>' in html:
+            return True
+        return not _moha_html_has_content(html)
+
+    def _should_use_mof_api(self, url: str, html: str) -> bool:
+        if not self._extract_mof_slug(url):
+            return False
+        parsed = urlparse(url)
+        domain = (parsed.hostname or parsed.netloc).lower()
+        if not (domain == "mof.gov.vn" or domain.endswith(".mof.gov.vn")):
+            return False
+        if '<div id="app"></div>' in html or '<div id="app">' in html:
+            return True
+        return "<title>" in html and "</title>" in html and "<div id=\"app\"" in html
+
+    @staticmethod
+    def _extract_moha_id(url: str) -> str | None:
+        match = _MOHA_ID_RE.search(url or "")
+        if not match:
+            return None
+        return match.group("id")
+
+    @staticmethod
+    def _extract_mof_slug(url: str) -> str | None:
+        path = urlparse(url).path or ""
+        parts = [segment for segment in path.split("/") if segment]
+        if not parts:
+            return None
+        slug = parts[-1].strip()
+        if slug in {"mof", "btc", _MOF_ROOT_SLUG, "search", "content"}:
+            return None
+        return slug or None
+
+    @staticmethod
+    def _slugify_moha_title(title: str) -> str | None:
+        if not title:
+            return None
+        lowered = title.lower()
+        normalized = unicodedata.normalize("NFD", lowered)
+        stripped = "".join(ch for ch in normalized if not unicodedata.combining(ch))
+        stripped = stripped.replace("đ", "d")
+        stripped = re.sub(r"[^0-9a-z-\\s]", "", stripped)
+        stripped = re.sub(r"(\\s+)", "-", stripped)
+        stripped = re.sub(r"-+", "-", stripped)
+        stripped = stripped.strip("-")
+        return stripped or None
+
     def _is_denied_article_url(self, url: str) -> bool:
         prefixes = getattr(self.site, "deny_article_prefixes", ())
         if not prefixes:
@@ -755,14 +1434,41 @@ class NewsSiteCrawler:
         if not suffixes:
             return True
         normalized_suffixes = [
-            suffix.strip().lower()
+            suffix.strip().lower().lstrip(".")
             for suffix in suffixes
             if suffix and suffix.strip()
         ]
         if not normalized_suffixes:
             return True
-        host = urlparse(url).netloc.lower()
-        return any(host.endswith(suffix) for suffix in normalized_suffixes)
+        parsed = urlparse(url)
+        host = (parsed.hostname or parsed.netloc).lower()
+        if host.startswith("www."):
+            host = host[4:]
+        return any(host == suffix or host.endswith(f".{suffix}") for suffix in normalized_suffixes)
+
+    def _is_allowed_internal_host(self, host: str, base_host: str) -> bool:
+        if not host:
+            return False
+        host = host.lower()
+        base_host = base_host.lower()
+        if host.startswith("www."):
+            host = host[4:]
+        if base_host.startswith("www."):
+            base_host = base_host[4:]
+        if host == base_host:
+            return True
+
+        suffixes = getattr(self.site, "allowed_internal_host_suffixes", ())
+        if not suffixes:
+            return False
+        normalized_suffixes = [
+            suffix.strip().lower().lstrip(".")
+            for suffix in suffixes
+            if suffix and suffix.strip()
+        ]
+        if not normalized_suffixes:
+            return False
+        return any(host == suffix or host.endswith(f".{suffix}") for suffix in normalized_suffixes)
 
     def _has_allowed_article_suffix(self, url: str) -> bool:
         suffixes = getattr(self.site, "allowed_article_url_suffixes", ())
@@ -804,6 +1510,13 @@ class NewsSiteCrawler:
         extractor = ArticleExtractor(url)
         data = extractor.extract(html)
 
+        forced_category_id = getattr(self.site, "forced_category_id", None)
+        forced_category_name = getattr(self.site, "forced_category_name", None)
+        if forced_category_id:
+            data.category_id = forced_category_id
+        if forced_category_name:
+            data.category_name = forced_category_name
+
         title = data.title or url
         placeholder_title = f"{self.site.base_url.rstrip('/')}/404"
         if title and title.strip().lower() == placeholder_title.lower():
@@ -828,8 +1541,10 @@ class NewsSiteCrawler:
             description = _text_or_none(desc_node)
 
         content = data.content or _extract_main_content(soup) or None
-        if not content or len(content.strip()) < 50:
+        if content and len(content.strip()) < 50:
             raise SkipArticle(f"Missing article content for {url}")
+        if not content or not content.strip():
+            content = None
 
         # Nếu bản thân trang bài không có category_id và category_name
         # (do ArticleExtractor không trích được từ HTML) thì bỏ qua.
@@ -844,6 +1559,7 @@ class NewsSiteCrawler:
                 "vnexpress",
                 "baocaobang",
                 "baodienbienphu",
+                "thanhtra",
                 "modgov",
             ):
                 data.category_id = category.slug
@@ -865,6 +1581,11 @@ class NewsSiteCrawler:
                         tokens.append(text)
                 if tokens:
                     category_name = tokens[-1]
+
+        if forced_category_id:
+            category_id = forced_category_id
+        if forced_category_name:
+            category_name = forced_category_name
 
         if self.site.key == "vietbao":
             normalized_category_id = (category_id or "").strip().lower()

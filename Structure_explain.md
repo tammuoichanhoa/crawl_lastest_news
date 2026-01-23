@@ -31,7 +31,7 @@ This repo is a news crawler for Vietnamese sites. The core flow is:
   - Includes helpers for content pruning, meta parsing, and data normalization.
 - `crawler/site_config.py`
   - `ArticleSiteConfig`: per-domain extraction overrides (selectors, keywords, exclusions).
-  - Mapping of known hosts to config overrides.
+  - Loads per-domain overrides from `crawler/site_config.yml`.
 - `crawler/sitemap.py`
   - `SitemapCrawler`: fetches and parses sitemap or sitemap index URLs.
   - Supports gzip, legacy TLS, throttling, filtering.
@@ -69,4 +69,3 @@ This repo is a news crawler for Vietnamese sites. The core flow is:
   - Local PostgreSQL data directory (Docker).
 - `.env`
   - Database URL or other local environment settings.
-

@@ -97,4 +97,4 @@ tail -f logs/vnexpress.log
 
 - Thêm hoặc chỉnh sửa `SiteConfig` trong `config.py` để khai báo site mới (base URL, rule category, selector bài viết, v.v.).
 - Nếu cần logic đặc thù, xem thêm các helper trong thư mục `crawler/` (ví dụ: `crawler/site_config.py`, `crawler/sitemap.py`, `crawler/throttle.py`).
-
+- Site key mới đã thêm: `huengaynay` (https://huengaynay.vn).

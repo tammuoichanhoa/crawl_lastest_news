@@ -6,3 +6,4 @@ python-dotenv
 uuid-utils
 python-dateutil
 lxml
+PyYAML
