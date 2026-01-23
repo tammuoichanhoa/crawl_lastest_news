@@ -1,0 +1,11 @@
+'cafef.vn':
+  main_container_selectors:
+    - 'div#mainContent.detail-cmain'
+    - 'div.detail-cmain.ss#mainContent'
+    - 'div.detail-cmain.ss'
+  main_container_keywords:
+    - 'detail-cmain'
+    - 'maincontent'
+    - 'detail'
+  category_extractors:
+    - 'cafef_category'

@@ -26,6 +26,7 @@ class ArticleSiteConfig:
     allow_extensionless_images: bool = False
 
 
+_SITE_CONFIG_DIR = Path(__file__).with_name("site_configs")
 _SITE_CONFIG_PATH = Path(__file__).with_name("site_config.yml")
 _FIELD_DEFS = fields(ArticleSiteConfig)
 _ALLOWED_FIELDS = {field.name for field in _FIELD_DEFS}
@@ -35,7 +36,7 @@ _BOOL_FIELDS = {field.name for field in _FIELD_DEFS if isinstance(field.default,
 
 def _parse_simple_yaml_mapping(text: str) -> dict:
     """
-    Minimal YAML parser for `site_config.yml`.
+    Minimal YAML parser for site config YAML files.
 
     Supports a subset of YAML used by this repo:
     - Top-level mapping of domain -> mapping
@@ -127,15 +128,39 @@ def _parse_simple_yaml_mapping(text: str) -> dict:
     return root
 
 
-def _load_article_site_config(path: Path = _SITE_CONFIG_PATH) -> Dict[str, ArticleSiteConfig]:
-    if not path.exists():
-        raise FileNotFoundError(f"Site config YAML not found: {path}")
-
-    raw_text = path.read_text(encoding="utf-8")
+def _load_yaml_text(raw_text: str) -> dict | None:
     if yaml is not None:
-        raw = yaml.safe_load(raw_text)
-    else:  # pragma: no cover
-        raw = _parse_simple_yaml_mapping(raw_text)
+        return yaml.safe_load(raw_text)
+    return _parse_simple_yaml_mapping(raw_text)
+
+
+def _read_yaml_file(path: Path) -> dict | None:
+    return _load_yaml_text(path.read_text(encoding="utf-8"))
+
+
+def _load_article_site_config(
+    path: Path = _SITE_CONFIG_PATH, directory: Path = _SITE_CONFIG_DIR
+) -> Dict[str, ArticleSiteConfig]:
+    raw: dict | None
+    if directory.exists():
+        files = sorted(directory.glob("*.yml")) + sorted(directory.glob("*.yaml"))
+        raw = {}
+        for file_path in files:
+            part = _read_yaml_file(file_path)
+            if part is None:
+                continue
+            if not isinstance(part, dict):
+                raise ValueError(f"Site config YAML must be a mapping in {file_path}.")
+            for domain, values in part.items():
+                if domain in raw:
+                    raise ValueError(f"Duplicate site config for {domain} in {file_path}.")
+                raw[domain] = values
+    elif path.exists():
+        raw = _read_yaml_file(path)
+    else:
+        raise FileNotFoundError(
+            f"Site config YAML not found: {directory} or {path}"
+        )
     if raw is None:
         return {}
     if not isinstance(raw, dict):

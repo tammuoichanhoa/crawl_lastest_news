@@ -3,7 +3,7 @@
 Crawler thu thập các bài báo mới nhất từ nhiều trang tin tức Việt Nam (ví dụ: VNExpress, Tuổi Trẻ, Thanh Niên, Zing, v.v.) và lưu vào PostgreSQL thông qua SQLAlchemy.
 
 ## Tính năng chính
-- Hỗ trợ nhiều site khác nhau, cấu hình tập trung trong `config.py` (mỗi site là một `SiteConfig`).
+- Hỗ trợ nhiều site khác nhau, cấu hình nằm trong thư mục `config/` (mỗi site là một `SiteConfig`).
 - Crawl song song nhiều site bằng `ThreadPoolExecutor`.
 - Lưu dữ liệu vào PostgreSQL qua SQLAlchemy ORM.
 - Tự động tạo schema nếu chưa tồn tại.
@@ -66,7 +66,7 @@ python crawl_lastest_news/main.py --sites vnexpress tuoitre
 Một số tham số quan trọng (xem thêm trong `main.py`):
 - `--sites SITE_KEY ...`  
   Danh sách site muốn crawl, ví dụ: `--sites vnexpress tuoitre`.  
-  Nếu không truyền, chương trình sẽ crawl tất cả site được khai báo trong `config.py`.
+  Nếu không truyền, chương trình sẽ crawl tất cả site được khai báo trong `config/`.
 - `--database-url`  
   Chuỗi kết nối DB, ví dụ:  
   `postgresql+psycopg2://user:pass@host:port/dbname`.  
@@ -95,6 +95,6 @@ tail -f logs/vnexpress.log
 
 ## Mở rộng / thêm site mới
 
-- Thêm hoặc chỉnh sửa `SiteConfig` trong `config.py` để khai báo site mới (base URL, rule category, selector bài viết, v.v.).
+- Thêm hoặc chỉnh sửa `SiteConfig` trong `config/sites/*.py` để khai báo site mới (base URL, rule category, selector bài viết, v.v.).
 - Nếu cần logic đặc thù, xem thêm các helper trong thư mục `crawler/` (ví dụ: `crawler/site_config.py`, `crawler/sitemap.py`, `crawler/throttle.py`).
 - Site key mới đã thêm: `huengaynay` (https://huengaynay.vn).

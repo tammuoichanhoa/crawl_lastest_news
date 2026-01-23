@@ -14,10 +14,10 @@ This repo is a news crawler for Vietnamese sites. The core flow is:
   - Compatibility shim that re-exports classes from `site_crawler.py`.
 
 ## Configuration
-- `config.py`
-  - Defines `SiteConfig` dataclass (base URL, category rules, URL filters, selectors).
-  - Contains a config factory per site (e.g., `_vnexpress_config`, `_znews_config`).
-  - Exposes helpers: `get_supported_sites`, `get_site_config`, `iter_site_configs`.
+- `config/`
+  - `config/base.py`: defines `SiteConfig` dataclass and the default helper.
+  - `config/sites/*.py`: one config builder per site (e.g., vnexpress, znews).
+  - `config/__init__.py`: exposes helpers `get_supported_sites`, `get_site_config`, `iter_site_configs`.
 
 ## Crawling and parsing
 - `site_crawler.py`
@@ -31,7 +31,7 @@ This repo is a news crawler for Vietnamese sites. The core flow is:
   - Includes helpers for content pruning, meta parsing, and data normalization.
 - `crawler/site_config.py`
   - `ArticleSiteConfig`: per-domain extraction overrides (selectors, keywords, exclusions).
-  - Loads per-domain overrides from `crawler/site_config.yml`.
+  - Loads per-domain overrides from `crawler/site_configs/*.yml`.
 - `crawler/sitemap.py`
   - `SitemapCrawler`: fetches and parses sitemap or sitemap index URLs.
   - Supports gzip, legacy TLS, throttling, filtering.
