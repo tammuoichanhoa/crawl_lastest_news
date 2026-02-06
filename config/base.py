@@ -60,6 +60,8 @@ class SiteConfig:
     # Cho phép crawl category (internal link) trên các host phụ/alias.
     # Mặc định chỉ chấp nhận base_host (từ base_url) và biến thể www.
     allowed_internal_host_suffixes: Tuple[str, ...] = field(default_factory=tuple)
+    # Loại bỏ các host nội bộ có prefix nhất định (vd. "news.", "m.").
+    deny_internal_host_prefixes: Tuple[str, ...] = field(default_factory=tuple)
 
     # Nếu fetch category bị 404, thử fallback bằng cách strip các suffix này khỏi path
     # (ví dụ "/tin-tuc.htm" -> "/tin-tuc"). Hữu ích với site thay đổi canonical URL.
@@ -67,6 +69,8 @@ class SiteConfig:
 
     # Chỉ chấp nhận các host bài viết có hậu tố (suffix) nhất định, ví dụ: (".vn",)
     allowed_article_host_suffixes: Tuple[str, ...] = field(default_factory=tuple)
+    # Loại bỏ các host bài viết có prefix nhất định (vd. "news.", "m.").
+    deny_article_host_prefixes: Tuple[str, ...] = field(default_factory=tuple)
 
     # Chỉ lấy link bài viết có đuôi (suffix) cụ thể, ví dụ: (".html",)
     allowed_article_url_suffixes: Tuple[str, ...] = field(default_factory=tuple)
@@ -102,6 +106,8 @@ class SiteConfig:
     # Bật các flag này chỉ khi thật sự cần cho site tương ứng.
     allow_legacy_ssl: bool = False
     allow_weak_dh_ssl: bool = False
+    # Bỏ qua verify certificate cho các site có chain lỗi (chỉ dùng khi cần thiết).
+    allow_insecure_ssl: bool = False
 
     # Nếu cấu hình, sẽ ép category_id/category_name của mọi bài viết về giá trị này
     # (dùng khi hệ thống downstream cần phân loại cố định theo nguồn).

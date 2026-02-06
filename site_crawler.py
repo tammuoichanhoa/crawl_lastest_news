@@ -39,6 +39,8 @@ _MOHA_FALLBACK_CATEGORIES = (
     ("13", "/chuyen-muc/tin-tong-hop---id13", "Tin tong hop"),
     ("14", "/chuyen-muc/diem-tin-dia-phuong-nganh-noi-vu---id14", "Tin dia phuong - Co so"),
 )
+_MIN_VIETNAMESE_LETTERS = 200
+_MIN_VIETNAMESE_DIACRITICS = 3
 
 
 @dataclass(slots=True)
@@ -97,6 +99,7 @@ class RateLimitedHttpClient:
         headers: Optional[Dict[str, str]] = None,
         allow_legacy_ssl: bool = False,
         allow_weak_dh_ssl: bool = False,
+        allow_insecure_ssl: bool = False,
     ) -> None:
         self._session = requests.Session()
         self._delay = max(float(delay_seconds), 0.0)
@@ -107,6 +110,7 @@ class RateLimitedHttpClient:
         self._blocked_markers = [
             marker.lower() for marker in (blocked_markers or []) if marker
         ]
+        self._verify = not allow_insecure_ssl
         self._headers = {
             "User-Agent": (
                 "latest-news-crawler/0.1 (+https://example.local)"
@@ -231,6 +235,7 @@ class RateLimitedHttpClient:
                         timeout=self._timeout,
                         params=params,
                         json=json_data,
+                        verify=self._verify,
                     )
                 else:
                     response = self._session.get(
@@ -238,6 +243,7 @@ class RateLimitedHttpClient:
                         headers=request_headers,
                         timeout=self._timeout,
                         params=params,
+                        verify=self._verify,
                     )
             except requests.RequestException as exc:
                 last_exc = exc
@@ -245,6 +251,25 @@ class RateLimitedHttpClient:
                     raise
                 self._sleep_retry(attempt)
                 continue
+
+            # Handle simple JS cookie challenges (e.g. laodong.vn)
+            if response.status_code == 200 and response.text:
+                match = re.search(
+                    r'document\\.cookie="D1N=([^"]+)"',
+                    response.text,
+                )
+                if match:
+                    value = match.group(1).strip()
+                    parsed = urlparse(url)
+                    host = (parsed.hostname or parsed.netloc or "").lower()
+                    if host.startswith("www."):
+                        host = host[4:]
+                    existing = self._session.cookies.get("D1N", domain=host)
+                    if value and value != existing:
+                        self._session.cookies.set("D1N", value, domain=host, path="/")
+                        if attempt < self._max_retries:
+                            self._sleep_retry(attempt, response=response)
+                            continue
 
             if self._blocked_markers:
                 content = response.text.lower()
@@ -375,6 +400,8 @@ def _extract_main_content(soup: BeautifulSoup) -> str:
         "article.article",
         "div#main_detail",
         "div#content",
+        "div#content_detail",
+        "div.content-detail",
         "div.article-content",
         "div.b-maincontent",
     ]
@@ -399,6 +426,29 @@ def _extract_main_content(soup: BeautifulSoup) -> str:
         text = body.get_text("\n", strip=True)
         return text
     return ""
+
+
+def _count_latin_diacritics(text: str) -> int:
+    if not text:
+        return 0
+    count = 0
+    for ch in text:
+        if ch.isalpha():
+            decomposed = unicodedata.normalize("NFD", ch)
+            if any(unicodedata.combining(c) for c in decomposed[1:]):
+                count += 1
+    return count
+
+
+def _looks_vietnamese(text: str) -> bool:
+    if not text:
+        return True
+    letter_count = sum(1 for ch in text if ch.isalpha())
+    if letter_count < _MIN_VIETNAMESE_LETTERS:
+        return True
+    if "đ" in text or "Đ" in text:
+        return True
+    return _count_latin_diacritics(text) >= _MIN_VIETNAMESE_DIACRITICS
 
 
 def _moha_html_has_content(html: str) -> bool:
@@ -559,6 +609,7 @@ class NewsSiteCrawler:
                 headers=site.request_headers or None,
                 allow_legacy_ssl=site.allow_legacy_ssl,
                 allow_weak_dh_ssl=site.allow_weak_dh_ssl,
+                allow_insecure_ssl=site.allow_insecure_ssl,
             )
 
         self._seen_article_urls: Set[str] = set()
@@ -802,6 +853,24 @@ class NewsSiteCrawler:
                     slug=slug,
                     name=anchor.get_text(" ", strip=True) or None,
                 )
+                if len(categories) >= self.site.max_categories:
+                    break
+
+        if not categories and self.site.key == "laodong":
+            base_url = self.site.base_url.rstrip("/") + "/"
+            for prefix in self.site.allow_category_prefixes:
+                if not prefix:
+                    continue
+                path = prefix if prefix.startswith("/") else f"/{prefix}"
+                slug = _slug_from_category_path(path, self.site.category_path_pattern)
+                category_path = (
+                    self.site.category_path_pattern.format(slug=slug)
+                    if self.site.canonicalize_category_paths
+                    else path
+                )
+                canonical = urljoin(base_url, category_path.lstrip("/"))
+                if canonical not in categories:
+                    categories[canonical] = CategoryInfo(url=canonical, slug=slug, name=None)
                 if len(categories) >= self.site.max_categories:
                     break
 
@@ -1431,19 +1500,28 @@ class NewsSiteCrawler:
 
     def _is_allowed_article_host(self, url: str) -> bool:
         suffixes = getattr(self.site, "allowed_article_host_suffixes", ())
+        deny_prefixes = getattr(self.site, "deny_article_host_prefixes", ())
         if not suffixes:
-            return True
+            suffixes = ()
         normalized_suffixes = [
             suffix.strip().lower().lstrip(".")
             for suffix in suffixes
             if suffix and suffix.strip()
         ]
-        if not normalized_suffixes:
-            return True
         parsed = urlparse(url)
         host = (parsed.hostname or parsed.netloc).lower()
         if host.startswith("www."):
             host = host[4:]
+        if deny_prefixes:
+            normalized_denies = [
+                prefix.strip().lower()
+                for prefix in deny_prefixes
+                if prefix and prefix.strip()
+            ]
+            if any(host.startswith(prefix) for prefix in normalized_denies):
+                return False
+        if not normalized_suffixes:
+            return True
         return any(host == suffix or host.endswith(f".{suffix}") for suffix in normalized_suffixes)
 
     def _is_allowed_internal_host(self, host: str, base_host: str) -> bool:
@@ -1457,6 +1535,15 @@ class NewsSiteCrawler:
             base_host = base_host[4:]
         if host == base_host:
             return True
+        deny_prefixes = getattr(self.site, "deny_internal_host_prefixes", ())
+        if deny_prefixes:
+            normalized_denies = [
+                prefix.strip().lower()
+                for prefix in deny_prefixes
+                if prefix and prefix.strip()
+            ]
+            if any(host.startswith(prefix) for prefix in normalized_denies):
+                return False
 
         suffixes = getattr(self.site, "allowed_internal_host_suffixes", ())
         if not suffixes:
@@ -1502,7 +1589,7 @@ class NewsSiteCrawler:
         soup = BeautifulSoup(html, "html.parser")
 
         skip_locale, locale_value = self._should_skip_locale(soup)
-        if skip_locale:
+        if skip_locale and self.site.key != "laodong":
             raise SkipArticle(
                 f"Unsupported locale '{locale_value}' for article {url}",
             )
@@ -1546,6 +1633,15 @@ class NewsSiteCrawler:
         if not content or not content.strip():
             content = None
 
+        if self.site.key == "laodong":
+            combined_text = " ".join(part for part in (title, description, content) if part)
+            if skip_locale and not _looks_vietnamese(combined_text):
+                raise SkipArticle(
+                    f"Unsupported locale '{locale_value}' for article {url}",
+                )
+            if not _looks_vietnamese(combined_text):
+                raise SkipArticle(f"Non-Vietnamese content for article {url}")
+
         # Nếu bản thân trang bài không có category_id và category_name
         # (do ArticleExtractor không trích được từ HTML) thì bỏ qua.
         # Những URL này thường là trang thể loại/bộ sưu tập, không phải bài báo cụ thể.
@@ -1558,6 +1654,7 @@ class NewsSiteCrawler:
                 "vov",
                 "vnexpress",
                 "baocaobang",
+                "baovinhlong",
                 "baodienbienphu",
                 "thanhtra",
                 "modgov",

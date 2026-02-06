@@ -107,14 +107,17 @@ class ArticleExtractor:
                 soup,
                 ["meta[property='og:image']", "meta[name='og:image']"],
                 "content",
-                skip_predicate=lambda url: _should_skip_image_url(
+                skip_predicate=lambda url: self._should_skip_image_url(
                     url, allow_extensionless=allow_extensionless_images
                 ),
             )
 
         # Prefer images that are part of the article body; only fall back to metadata
         # images when none were found to avoid storing redundant site-wide thumbnails.
-        data.images = inline_images or metadata_images
+        if inline_images and self.site_config and self.site_config.include_metadata_images:
+            data.images = metadata_images + inline_images
+        else:
+            data.images = inline_images or metadata_images
         data.images = _deduplicate_preserve_order(data.images)
 
         data.videos = self._extract_media_urls(
@@ -696,7 +699,7 @@ class ArticleExtractor:
                 selected: str | None = None
                 for candidate in _collect_image_candidates(img):
                     resolved = self._absolutize(candidate)
-                    if _should_skip_image_url(
+                    if self._should_skip_image_url(
                         resolved, allow_extensionless=allow_extensionless_images
                     ):
                         continue
@@ -719,7 +722,7 @@ class ArticleExtractor:
                 selected: str | None = None
                 for candidate in _collect_image_candidates(source_tag):
                     resolved = self._absolutize(candidate)
-                    if _should_skip_image_url(
+                    if self._should_skip_image_url(
                         resolved, allow_extensionless=allow_extensionless_images
                     ):
                         continue
@@ -736,12 +739,24 @@ class ArticleExtractor:
                     continue
                 for candidate in _extract_urls_from_style(element.get("style", "")):
                     resolved = self._absolutize(candidate)
-                    if _should_skip_image_url(
+                    if self._should_skip_image_url(
                         resolved, allow_extensionless=allow_extensionless_images
                     ):
                         continue
                     urls.append(resolved)
         return urls
+
+    def _should_skip_image_url(self, url: str, *, allow_extensionless: bool = False) -> bool:
+        if not url:
+            return True
+        if self.site_config and self.site_config.excluded_image_urls:
+            lowered = url.lower().strip()
+            for excluded in self.site_config.excluded_image_urls:
+                if not excluded:
+                    continue
+                if lowered == excluded.lower().strip():
+                    return True
+        return _should_skip_image_url(url, allow_extensionless=allow_extensionless)
 
     def _resolve_inline_image_scopes(self, soup: BeautifulSoup, container: Tag | None) -> List[Tag]:
         if container is None:
@@ -2809,6 +2824,33 @@ def _extract_baodienbienphu_category(
     return category_id, text_value
 
 
+def _extract_baotuyenquang_category(
+    base_url: str, soup: BeautifulSoup
+) -> Tuple[str | None, str | None]:
+    container = soup.select_one("div.cate_title_1") or soup.select_one(".cate_title_1")
+    link = None
+    if container:
+        link = container.select_one("h2 a.title, h2 a[href]")
+    if not link:
+        link = soup.select_one("h2 a.title, h2 a[href]")
+    if not link:
+        return None, None
+
+    category_name = _normalize_whitespace(link.get_text(" ", strip=True)) or None
+    category_id = None
+    for cls in link.get("class", []):
+        if re.fullmatch(r"[0-9a-fA-F]{32}", cls):
+            category_id = cls.lower()
+            break
+    if not category_id:
+        href = link.get("href")
+        category_id = _slug_from_url(urljoin(base_url, href)) if href else None
+
+    if not category_id and not category_name:
+        return None, None
+    return category_id, category_name
+
+
 def _extract_baothainguyen_category(
     base_url: str, soup: BeautifulSoup
 ) -> Tuple[str | None, str | None]:
@@ -3051,6 +3093,22 @@ def _extract_baoquangtri_category(
     return parts[0].lower(), None
 
 
+def _extract_baokhanhhoa_category(
+    base_url: str, soup: BeautifulSoup
+) -> Tuple[str | None, str | None]:
+    canonical_node = soup.select_one("meta[property='og:url'], link[rel='canonical']")
+    if not canonical_node:
+        return None, None
+    canonical_url = canonical_node.get("content") or canonical_node.get("href")
+    if not canonical_url:
+        return None, None
+    parsed = urlparse(urljoin(base_url, canonical_url))
+    parts = [segment for segment in (parsed.path or "").split("/") if segment]
+    if not parts:
+        return None, None
+    return parts[0].lower(), None
+
+
 def _extract_bvhttdl_category(
     base_url: str, soup: BeautifulSoup
 ) -> Tuple[str | None, str | None]:
@@ -3146,6 +3204,166 @@ def _extract_breadcrumb_category(
     return None, None
 
 
+def _extract_baoninhbinh_category(
+    base_url: str, soup: BeautifulSoup
+) -> Tuple[str | None, str | None]:
+    """
+    Extract category from Báo Ninh Bình breadcrumb.
+
+    Example:
+    <ol class="... uppercase ...">
+      <li><a href="https://baoninhbinh.org.vn">...</a></li>
+      <li><a href="https://baoninhbinh.org.vn/chinh-tri">Chính trị</a></li>
+      <li><a href="https://baoninhbinh.org.vn/xay-dung-dang">Xây dựng đảng</a></li>
+    </ol>
+    """
+
+    # Newer layout: category list item with inline-flex classes.
+    for link in soup.select("li.inline-flex.items-center.gap-1\\.5 a[href]"):
+        href = link.get("href")
+        text = _normalize_whitespace(link.get_text(" ", strip=True))
+        if not href or not text:
+            continue
+        category_id = _slug_from_url(urljoin(base_url, href))
+        return category_id or _slugify(text), text
+
+    preferred_ols: list[Tag] = []
+    for ol in soup.select("ol"):
+        classes = set(ol.get("class") or [])
+        if {"uppercase", "font-semibold", "w-max"}.issubset(classes):
+            preferred_ols.append(ol)
+
+    candidates = []
+    for ol in preferred_ols or soup.select("ol"):
+        links = [
+            link
+            for link in ol.select("a[href]")
+            if link.get("href") and _normalize_whitespace(link.get_text(" ", strip=True))
+        ]
+        if len(links) < 2:
+            continue
+        has_home = any(
+            link.get("href", "").rstrip("/").lower() == base_url.rstrip("/").lower()
+            for link in links
+        )
+        if not has_home:
+            continue
+        candidates.append((ol, links))
+
+    if not candidates:
+        return None, None
+
+    # Prefer the candidate with most links (likely the breadcrumb trail).
+    _, links = max(candidates, key=lambda item: len(item[1]))
+
+    for link in reversed(links):
+        href = link.get("href")
+        text = _normalize_whitespace(link.get_text(" ", strip=True))
+        if not text or not href:
+            continue
+        lowered = text.lower()
+        if lowered in {"home", "trang chủ", "trang chu"}:
+            continue
+        if href.rstrip("/").lower() == base_url.rstrip("/").lower():
+            continue
+        category_id = _slug_from_url(urljoin(base_url, href))
+        return category_id or _slugify(text), text
+
+    return None, None
+
+
+def _extract_khoahocphattrien_category(
+    base_url: str, soup: BeautifulSoup
+) -> Tuple[str | None, str | None]:
+    """Extract category for khoahocphattrien.vn (tagdiv theme layout)."""
+
+    link = soup.select_one("ul.td-category a[href], .td-category a[href]")
+    if link:
+        href = link.get("href")
+        text = _normalize_whitespace(link.get_text(" ", strip=True))
+        if text:
+            if href:
+                category_id = _slug_from_url(urljoin(base_url, href))
+                return category_id or _slugify(text), text
+            return _slugify(text), text
+
+    container = soup.select_one(".entry-crumbs")
+    if not container:
+        return None, None
+
+    crumbs: list[str] = []
+    for node in container.select("a, span"):
+        text = _normalize_whitespace(node.get_text(" ", strip=True))
+        if not text:
+            continue
+        lowered = text.lower()
+        if lowered in {"home", "trang chủ", "trang chu"}:
+            continue
+        crumbs.append(text)
+
+    if not crumbs:
+        return None, None
+
+    category_name = crumbs[-1]
+    return _slugify(category_name), category_name
+
+
+def _extract_tapchitoaan_category(
+    _: str, soup: BeautifulSoup
+) -> Tuple[str | None, str | None]:
+    """
+    Extract category from tapchitoaan.vn.
+
+    Example:
+    <h6 class="cat-name">Dân sinh</h6>
+    """
+
+    label = soup.select_one("h6.cat-name")
+    if not label:
+        return None, None
+    category_name = _normalize_whitespace(label.get_text(" ", strip=True))
+    if not category_name:
+        return None, None
+    return _slugify(category_name), category_name
+
+
+def _extract_eva_category(_: str, soup: BeautifulSoup) -> Tuple[str | None, str | None]:
+    """
+    Extract category from EVA breadcrumb list.
+
+    Example:
+      <ul class="d-flex align-items-center"> ... <li class="act"><a ...>Phong thủy</a></li>
+    """
+
+    breadcrumb = soup.select_one("ul.d-flex.align-items-center")
+    if not breadcrumb:
+        return None, None
+
+    links = [
+        link
+        for link in breadcrumb.select("li a[href]")
+        if _normalize_whitespace(link.get_text(" ", strip=True))
+    ]
+    if not links:
+        return None, None
+
+    # Prefer the last breadcrumb link (current section).
+    for link in reversed(links):
+        name_text = _normalize_whitespace(link.get_text(" ", strip=True))
+        if not name_text:
+            continue
+        href = (link.get("href") or "").strip()
+        slug = _slug_from_url(href)
+        if slug:
+            return slug, name_text
+
+    # Fall back to last link name if slug missing.
+    name_text = _normalize_whitespace(links[-1].get_text(" ", strip=True))
+    if name_text:
+        return None, name_text
+    return None, None
+
+
 _CATEGORY_EXTRACTORS: dict[str, Callable[[str, BeautifulSoup], Tuple[str | None, str | None]]] = {
     "genk_category": _extract_genk_category,
     "kenh14_category": _extract_kenh14_category,
@@ -3173,6 +3391,7 @@ _CATEGORY_EXTRACTORS: dict[str, Callable[[str, BeautifulSoup], Tuple[str | None,
     "baotayninh_category": _extract_baotayninh_category,
     "baodaklak_category": _extract_baodaklak_category,
     "baodienbienphu_category": _extract_baodienbienphu_category,
+    "baotuyenquang_category": _extract_baotuyenquang_category,
     "baothainguyen_category": _extract_baothainguyen_category,
     "baosonla_category": _extract_baosonla_category,
     "bocongan_category": _extract_bocongan_category,
@@ -3180,8 +3399,13 @@ _CATEGORY_EXTRACTORS: dict[str, Callable[[str, BeautifulSoup], Tuple[str | None,
     "baoquangninh_category": _extract_baoquangninh_category,
     "baoquangngai_category": _extract_baoquangngai_category,
     "baoquangtri_category": _extract_baoquangtri_category,
+    "baokhanhhoa_category": _extract_baokhanhhoa_category,
     "bvhttdl_category": _extract_bvhttdl_category,
     "breadcrumb_category": _extract_breadcrumb_category,
+    "eva_category": _extract_eva_category,
+    "baoninhbinh_category": _extract_baoninhbinh_category,
+    "tapchitoaan_category": _extract_tapchitoaan_category,
+    "khoahocphattrien_category": _extract_khoahocphattrien_category,
     "mofa_category": _extract_mofa_category,
     "moit_category": _extract_mofa_category,
     "qdnd_category": _extract_qdnd_category,

@@ -11,37 +11,6 @@ daibieunhandan
 congly
 nongnghiepmoitruong
 
-baolaocai
-baocamau
-baodongnai
-baodongkhoi
-baoxaydung
-hanoimoi
-sggp
-baodanang
-baihaiphong
-baocantho
-baobacninhtv
-
-baoquangnam
-baoquangninh
-baoquangngai
-baoquangtri
-baosonla
-baotayninh
-baothainguyen
-baothanhhoa
-baodienbienphu
-baogialai
-baolaichau
-baolaocai
-baonghean
-baohaugiang
-baohatinh
-baodaklak
-baodongthap
-baobinhduong
-
 mof (botaichinh)
 moha (bonoivu)
 mst (bo KH &CN)
@@ -51,6 +20,20 @@ cema (uy ban dantoc va tongiao)
 thanhtra ( thanh tra chinh phu)
 vpcp (van phong chinh phu)
 vtvgov (dai truyen hinh viet nam)
+plo(pháp luật tp hcm)
+tapchitoaan
+khoahocphattrien
+eva
+giadinh_suckhoedoisong
+nguoiquansat
+
+baoninhbinh
+baovinhlong
+baotuyenquang
+baotravinh
+huengaynay
+baokhanhhoa
+baolamdong
 
 ------------ Have config but not tested -------------------
 baodautu
@@ -63,7 +46,7 @@ tuoitre
 kenh14
 cafef
 vtv
-vietnamnet
+vietnamnettaptri
 24h
 vietnamplus
 dantri
@@ -86,20 +69,45 @@ modgov(boquocphong) *
 qdnd *
 baophapluat *
 
-
+baolaocai
+baocamau
+baodongnai
+baodongkhoi
+baoxaydung
+hanoimoi
+sggp
+baodanang
+baihaiphong
+baocantho
+baobacninhtv
+baoquangnam
+baoquangninh
+baoquangngai
+baoquangtri
+baosonla
+baotayninh
+baothainguyen
+baothanhhoa
+baodienbienphu
+baogialai
+baolaichau
+baolaocai
+baonghean
+baohaugiang
+baohatinh
+baodaklak
+baodongthap
+baobinhduong
 
 
 ------------------------cron-job----------------------------
-0,30 * * * * cd /home/dev/BA_workspace/crawl_lastest_news && flock -n /tmp/crawl_batch_0.lock .venv/bin/python main.py --sites 24h cafef dantri kenh14 nguoilaodong soha --workers 8 --database-url "postgresql+psycopg2://crawl:crawl@localhost:15432/lastest_news" > /dev/null 2>&1
+10,40 * * * * cd /home/dev/BA_workspace/crawl_lastest_news && flock -n /tmp/crawl_batch_2.lock .venv/bin/python main.py --sites baophapluat qdnd cand bocongan modgov baolaocai baocamau baodongnai baodongkhoi baoxaydung hanoimoi sggp --workers 8 --database-url "postgresql+psycopg2://crawl:crawl@localhost:15432/lastest_news" > /dev/null 2>&1
 
-5,35 * * * * cd /home/dev/BA_workspace/crawl_lastest_news && flock -n /tmp/crawl_batch_1.lock .venv/bin/python main.py --sites thanhnien tienphong tuoitre vietnambiz vietnamnet  --workers 8 --database-url "postgresql+psycopg2://crawl:crawl@localhost:15432/lastest_news" > /dev/null 2>&1
+0,30 * * * * cd /home/dev/BA_workspace/crawl_lastest_news && flock -n /tmp/crawl_batch_0.lock .venv/bin/python main.py --sites 24h cafef dantri kenh14 nguoilaodong soha baodanang baihaiphong baocantho baobacninhtv baoquangnam baoquangninh baoquangngai --workers 8 --database-url "postgresql+psycopg2://crawl:crawl@localhost:15432/lastest_news" > /dev/null 2>&1
 
-15,45 * * * * cd /home/dev/BA_workspace/crawl_lastest_news && flock -n /tmp/crawl_batch_3.lock .venv/bin/python main.py --sites vietnamplus vnexpress vtcnews vtvgov znewsznews --workers 8 --database-url "postgresql+psycopg2://crawl:crawl@localhost:15432/lastest_news" > /dev/null 2>&1
+5,35 * * * * cd /home/dev/BA_workspace/crawl_lastest_news && flock -n /tmp/crawl_batch_1.lock .venv/bin/python main.py --sites thanhnien tienphong tuoitre vietnambiz vietnamnet baoquangtri baosonla baotayninh baothainguyen baothanhhoa baodienbienphu baogialai --workers 8 --database-url "postgresql+psycopg2://crawl:crawl@localhost:15432/lastest_news" > /dev/null 2>&1
 
-10,40 * * * * cd /home/dev/BA_workspace/crawl_lastest_news && flock -n /tmp/crawl_batch_2.lock .venv/bin/python main.py --sites baophapluat qdnd cand bocongan modgov --workers 8 --database-url "postgresql+psycopg2://crawl:crawl@localhost:15432/lastest_news" > /dev/null 2>&1
-
-
-
+15,45 * * * * cd /home/dev/BA_workspace/crawl_lastest_news && flock -n /tmp/crawl_batch_3.lock .venv/bin/python main.py --sites vietnamplus vnexpress vtcnews vtv znews baolaichau baolaocai baonghean baohaugiang baohatinh baodaklak baodongthap baobinhduong --workers 8 --database-url "postgresql+psycopg2://crawl:crawl@localhost:15432/lastest_news" > /dev/null 2>&1
 
 
 ------------ others -----------------------------------------------------

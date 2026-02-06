@@ -23,7 +23,9 @@ class ArticleSiteConfig:
     category_extractors: Tuple[str, ...] = ()
     tag_extractors: Tuple[str, ...] = ()
     inline_media_only: bool = False
+    include_metadata_images: bool = False
     allow_extensionless_images: bool = False
+    excluded_image_urls: Tuple[str, ...] = ()
 
 
 _SITE_CONFIG_DIR = Path(__file__).with_name("site_configs")

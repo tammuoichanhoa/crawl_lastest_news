@@ -55,7 +55,7 @@ class ArticleImage(Base):
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=generate_uuid7)
     article_id = Column(UUID(as_uuid=True), ForeignKey('articles.id', ondelete='CASCADE'), nullable=False)
-    image_path = Column(String(500), nullable=False)
+    image_path = Column(String(2000), nullable=False)
     sequence_number = Column(Integer, nullable=False)
     created_at = Column(DateTime, default=func.now(), nullable=False)
     
