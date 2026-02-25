@@ -56,6 +56,7 @@ class ArticleImage(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=generate_uuid7)
     article_id = Column(UUID(as_uuid=True), ForeignKey('articles.id', ondelete='CASCADE'), nullable=False)
     image_path = Column(String(2000), nullable=False)
+    status = Column(String(20), nullable=False, default="pending", index=True)
     sequence_number = Column(Integer, nullable=False)
     created_at = Column(DateTime, default=func.now(), nullable=False)
     
@@ -68,7 +69,10 @@ class ArticleImage(Base):
     )
     
     def __repr__(self):
-        return f"<ArticleImage(id={self.id}, article_id={self.article_id}, path='{self.image_path}')>"
+        return (
+            f"<ArticleImage(id={self.id}, article_id={self.article_id}, "
+            f"path='{self.image_path}', status='{self.status}')>"
+        )
 
 
 class ArticleVideo(Base):

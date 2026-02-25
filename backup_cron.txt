@@ -1,0 +1,61 @@
+# Edit this file to introduce tasks to be run by cron.
+# 
+# Each task to run has to be defined through a single line
+# indicating with different fields when the task will be run
+# and what command to run for the task
+# 
+# To define the time you can provide concrete values for
+# minute (m), hour (h), day of month (dom), month (mon),
+# and day of week (dow) or use '*' in these fields (for 'any').
+# 
+# Notice that tasks will be started based on the cron's system
+# daemon's notion of time and timezones.
+# 
+# Output of the crontab jobs (including errors) is sent through
+# email to the user the crontab file belongs to (unless redirected).
+# 
+# For example, you can run a backup of all your user accounts
+# at 5 a.m every week with:
+# 0 5 * * 1 tar -zcf /var/backups/home.tgz /home/
+# 
+# For more information see the manual pages of crontab(5) and cron(8)
+# 
+# m h  dom mon dow   command
+
+#10,40 * * * * cd /home/dev/BA_workspace/crawl_lastest_news && flock -n /tmp/crawl_batch_2.lock .venv/bin/python main.py --sites baophapluat qdnd cand bocongan modgov --workers 8 --database-url "postgresql+psycopg2://crawl:crawl@localhost:15432/lastest_news" > /dev/null 2>&1
+#0,30 * * * * cd /home/dev/BA_workspace/crawl_lastest_news && flock -n /tmp/crawl_batch_0.lock .venv/bin/python main.py --sites 24h cafef dantri kenh14 nguoilaodong soha --workers 8 --database-url "postgresql+psycopg2://crawl:crawl@localhost:15432/lastest_news" > /dev/null 2>&1
+
+#5,35 * * * * cd /home/dev/BA_workspace/crawl_lastest_news && flock -n /tmp/crawl_batch_1.lock .venv/bin/python main.py --sites thanhnien tienphong tuoitre vietnambiz vietnamnet  --workers 8 --database-url "postgresql+psycopg2://crawl:crawl@localhost:15432/lastest_news" > /dev/null 2>&1
+
+#15,45 * * * * cd /home/dev/BA_workspace/crawl_lastest_news && flock -n /tmp/crawl_batch_3.lock .venv/bin/python main.py --sites vietnamplus vnexpress vtcnews vtv znewsznews --workers 8 --database-url "postgresql+psycopg2://crawl:crawl@localhost:15432/lastest_news" > /dev/null 2>&1
+
+#10,40 * * * * cd /home/dev/BA_workspace/crawl_lastest_news && flock -n /tmp/crawl_batch_2.lock .venv/bin/python main.py --sites baophapluat qdnd cand bocongan modgov baolaocai baocamau baodongnai baodongkhoi baoxaydung hanoimoi sggp --workers 8 --database-url "postgresql+psycopg2://crawl:crawl@localhost:15432/lastest_news" > /dev/null 2>&1
+
+#0,30 * * * * cd /home/dev/BA_workspace/crawl_lastest_news && flock -n /tmp/crawl_batch_0.lock .venv/bin/python main.py --sites 24h cafef dantri kenh14 nguoilaodong soha baodanang baihaiphong baocantho baobacninhtv baoquangnam baoquangninh baoquangngai --workers 8 --database-url "postgresql+psycopg2://crawl:crawl@localhost:15432/lastest_news" > /dev/null 2>&1
+
+#5,35 * * * * cd /home/dev/BA_workspace/crawl_lastest_news && flock -n /tmp/crawl_batch_1.lock .venv/bin/python main.py --sites thanhnien tienphong tuoitre vietnambiz vietnamnet baoquangtri baosonla baotayninh baothainguyen baothanhhoa baodienbienphu baogialai --workers 8 --database-url "postgresql+psycopg2://crawl:crawl@localhost:15432/lastest_news" > /dev/null 2>&1
+
+#15,45 * * * * cd /home/dev/BA_workspace/crawl_lastest_news && flock -n /tmp/crawl_batch_3.lock .venv/bin/python main.py --sites vietnamplus vnexpress vtcnews vtv znews baolaichau baonghean baohaugiang baohatinh baodaklak baodongthap baobinhduong --workers 8 --database-url "postgresql+psycopg2://crawl:crawl@localhost:15432/lastest_news" > /dev/null 2>&1
+
+#10,40 * * * * cd /home/dev/BA_workspace/crawl_lastest_news && flock -n /tmp/crawl_batch_2.lock .venv/bin/python main.py --sites baophapluat qdnd cand bocongan modgov baolaocai baocamau baodongnai baodongkhoi baoxaydung hanoimoi sggp genk mattran nguoiquansat giadinh_suckhoedoisong nhandan vietbao cafebiz daibieunhandan --workers 8 --database-url "postgresql+psycopg2://crawl:crawl@localhost:15432/lastest_news" > /dev/null 2>&1
+
+#0,30 * * * * cd /home/dev/BA_workspace/crawl_lastest_news && flock -n /tmp/crawl_batch_0.lock .venv/bin/python main.py --sites 24h cafef dantri kenh14 nguoilaodong soha baodanang baihaiphong baocantho baobacninhtv baoquangnam baoquangninh baoquangngai congly nongnghiepmoitruong mof moha  mst bvhttdl moh  cema --workers 8 --database-url "postgresql+psycopg2://crawl:crawl@localhost:15432/lastest_news" > /dev/null 2>&1
+
+#5,35 * * * * cd /home/dev/BA_workspace/crawl_lastest_news && flock -n /tmp/crawl_batch_1.lock .venv/bin/python main.py --sites thanhnien tienphong tuoitre vietnambiz vietnamnet baoquangtri baosonla baotayninh baothainguyen baothanhhoa baodienbienphu baogialai thanhtra vpcp vtvgov plo tapchitoaan khoahocphattrien eva giadinh_suckhoedoisong --workers 8 --database-url "postgresql+psycopg2://crawl:crawl@localhost:15432/lastest_news" > /dev/null 2>&1
+
+#15,45 * * * * cd /home/dev/BA_workspace/crawl_lastest_news && flock -n /tmp/crawl_batch_3.lock .venv/bin/python main.py --sites vietnamplus vnexpress vtcnews vtv znews baolaichau baolaocai baonghean baohaugiang baohatinh baodaklak baodongthap baobinhduong nguoiquansat baoninhbinh baovinhlong baotuyenquang baotravinh huengaynay baokhanhhoa baolamdong --workers 8 --database-url "postgresql+psycopg2://crawl:crawl@localhost:15432/lastest_news" > /dev/null 2>&1
+
+#10,40 * * * * cd /home/dev/BA_workspace/crawl_lastest_news && flock -n /tmp/crawl_batch_2.lock .venv/bin/python main.py --sites baophapluat qdnd cand bocongan modgov baolaocai baocamau baodongnai baodongkhoi baoxaydung hanoimoi sggp genk mattran nguoiquansat giadinh_suckhoedoisong nhandan vietbao cafebiz daibieunhandan --workers 8 --download --images-folder /data/latest_news_images/images --database-url "postgresql+psycopg2://crawl:crawl@localhost:15432/lastest_news" > /dev/null 2>&1
+
+#0,30 * * * * cd /home/dev/BA_workspace/crawl_lastest_news && flock -n /tmp/crawl_batch_0.lock .venv/bin/python main.py --sites 24h cafef dantri kenh14 nguoilaodong soha baodanang baihaiphong baocantho baobacninhtv baoquangnam baoquangninh baoquangngai congly nongnghiepmoitruong mof moha  mst bvhttdl moh  cema --workers 8 --download --images-folder /data/latest_news_images/images --database-url "postgresql+psycopg2://crawl:crawl@localhost:15432/lastest_news" > /dev/null 2>&1
+
+#5,35 * * * * cd /home/dev/BA_workspace/crawl_lastest_news && flock -n /tmp/crawl_batch_1.lock .venv/bin/python main.py --sites thanhnien tienphong tuoitre vietnambiz vietnamnet baoquangtri baosonla baotayninh baothainguyen baothanhhoa baodienbienphu baogialai thanhtra vpcp vtvgov plo tapchitoaan khoahocphattrien eva giadinh_suckhoedoisong --workers 8 --download --images-folder /data/latest_news_images/images --database-url "postgresql+psycopg2://crawl:crawl@localhost:15432/lastest_news" > /dev/null 2>&1
+
+#15,45 * * * * cd /home/dev/BA_workspace/crawl_lastest_news && flock -n /tmp/crawl_batch_3.lock .venv/bin/python main.py --sites vietnamplus vnexpress vtcnews vtv znews baolaichau baolaocai baonghean baohaugiang baohatinh baodaklak baodongthap baobinhduong nguoiquansat baoninhbinh baovinhlong baotuyenquang baotravinh huengaynay baokhanhhoa baolamdong --workers 8 --download --images-folder /data/latest_news_images/images --database-url "postgresql+psycopg2://crawl:crawl@localhost:15432/lastest_news" > /dev/null 2>&1
+
+
+
+0,30 * * * * cd /home/dev/BA_workspace/crawl_lastest_news && mkdir -p logs && flock /tmp/crawl_batch_0.lock .venv/bin/python main.py --sites 24h cafef dantri kenh14 nguoilaodong soha baodanang baihaiphong baocantho baobacninhtv baoquangnam baoquangninh baoquangngai congly nongnghiepmoitruong mof moha  mst bvhttdl moh  cema --workers 8 --download --database-url "postgresql+psycopg2://crawl:crawl@localhost:15432/lastest_news" >> logs/cron_batch_0.log 2>&1
+5,35 * * * * cd /home/dev/BA_workspace/crawl_lastest_news && mkdir -p logs && flock /tmp/crawl_batch_1.lock .venv/bin/python main.py --sites thanhnien tienphong tuoitre vietnambiz vietnamnet baoquangtri baosonla baotayninh baothainguyen baothanhhoa baodienbienphu baogialai thanhtra vpcp vtvgov plo tapchitoaan khoahocphattrien eva --workers 8 --download  --database-url "postgresql+psycopg2://crawl:crawl@localhost:15432/lastest_news" >> logs/cron_batch_1.log 2>&1
+10,40 * * * * cd /home/dev/BA_workspace/crawl_lastest_news && mkdir -p logs && flock /tmp/crawl_batch_2.lock .venv/bin/python main.py --sites baophapluat qdnd cand bocongan modgov baolaocai baocamau baodongnai baodongkhoi baoxaydung hanoimoi sggp genk mattran nguoiquansat giadinh_suckhoedoisong nhandan vietbao cafebiz daibieunhandan --workers 8 --download --database-url "postgresql+psycopg2://crawl:crawl@localhost:15432/lastest_news" >> logs/cron_batch_2.log 2>&1
+15,45 * * * * cd /home/dev/BA_workspace/crawl_lastest_news && mkdir -p logs && flock /tmp/crawl_batch_3.lock .venv/bin/python main.py --sites vietnamplus vnexpress vtcnews vtv znews baolaichau baonghean baohaugiang baohatinh baodaklak baodongthap baobinhduong baoninhbinh baovinhlong baotuyenquang baotravinh huengaynay baokhanhhoa baolamdong --workers 8 --download --database-url "postgresql+psycopg2://crawl:crawl@localhost:15432/lastest_news" >> logs/cron_batch_3.log 2>&1

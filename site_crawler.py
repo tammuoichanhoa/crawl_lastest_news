@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import re
 import ssl
 import time
@@ -17,7 +18,7 @@ from requests.adapters import HTTPAdapter
 from sqlalchemy.orm import Session
 
 from .config import SiteConfig
-from .db.models import Article, ArticleImage, ArticleVideo
+from .db.models import Article, ArticleImage, ArticleVideo, generate_image_path
 from .crawler.article import (
     ArticleExtractor,
     _is_in_excluded_section,
@@ -41,6 +42,28 @@ _MOHA_FALLBACK_CATEGORIES = (
 )
 _MIN_VIETNAMESE_LETTERS = 200
 _MIN_VIETNAMESE_DIACRITICS = 3
+
+
+def _guess_image_extension(url: str, content_type: Optional[str]) -> str:
+    path = urlparse(url).path or ""
+    ext = os.path.splitext(path)[1].lower().lstrip(".")
+    if ext and ext.isalnum() and len(ext) <= 6:
+        return ext
+    if content_type:
+        normalized = content_type.split(";")[0].strip().lower()
+        mapping = {
+            "image/jpeg": "jpg",
+            "image/jpg": "jpg",
+            "image/png": "png",
+            "image/webp": "webp",
+            "image/gif": "gif",
+            "image/svg+xml": "svg",
+            "image/bmp": "bmp",
+            "image/tiff": "tiff",
+        }
+        if normalized in mapping:
+            return mapping[normalized]
+    return "jpg"
 
 
 @dataclass(slots=True)
@@ -189,6 +212,19 @@ class RateLimitedHttpClient:
             request_headers.update(headers)
         response = self._request(url, params=params, headers=request_headers)
         return response.json()
+
+    def get_bytes(
+        self,
+        url: str,
+        *,
+        params: Optional[Dict[str, object]] = None,
+        headers: Optional[Dict[str, str]] = None,
+    ) -> tuple[bytes, Optional[str]]:
+        request_headers = {"Accept": "image/*,*/*;q=0.8"}
+        if headers:
+            request_headers.update(headers)
+        response = self._request(url, params=params, headers=request_headers)
+        return response.content, response.headers.get("Content-Type")
 
     def post_json(
         self,
@@ -593,6 +629,8 @@ class NewsSiteCrawler:
         session: Optional[Session],
         *,
         client: Optional[RateLimitedHttpClient] = None,
+        download_images: bool = False,
+        images_folder: Optional[str] = None,
     ) -> None:
         self.site = site
         self.session = session
@@ -616,6 +654,13 @@ class NewsSiteCrawler:
         self._inserted = 0
         self._skipped = 0
         self._failed = 0
+        self._download_images = bool(download_images)
+        self._images_folder = images_folder
+        if self._download_images and not self._images_folder:
+            self._images_folder = "images"
+        if self._download_images and self._images_folder:
+            os.makedirs(self._images_folder, exist_ok=True)
+            LOGGER.info("Make dir sucessful")
 
     def _normalize_url(self, href: str) -> Optional[str]:
         return _normalize_internal_url(
@@ -1768,81 +1813,179 @@ class NewsSiteCrawler:
     def _save_article(self, parsed: ParsedArticle) -> None:
         if self.session is None:
             raise RuntimeError("Session is required to save articles.")
-        existing = (
-            self.session.query(Article.id)
-            .filter(Article.url == parsed.url)
-            .first()
-        )
-        if existing:
-            self._skipped += 1
-            return
-
-        tags_str = self._join_tags(parsed.tags)
-        title = self._trim_to_column_length(parsed.title, Article.title)
-        category_id = self._trim_to_column_length(parsed.category_id, Article.category_id)
-        category_name = self._trim_to_column_length(
-            parsed.category_name, Article.category_name
-        )
-        tags_str = self._trim_to_column_length(tags_str, Article.tags)
-        url = self._trim_to_column_length(parsed.url, Article.url)
-        article_name = self._trim_to_column_length(
-            self.site.resolved_article_name(), Article.article_name
-        )
-
-        article = Article(
-            title=title,
-            description=parsed.description,
-            content=parsed.content,
-            category_id=category_id,
-            category_name=category_name,
-            comments=None,
-            tags=tags_str,
-            url=url,
-            publish_date=parsed.publish_date,
-            article_name=article_name,
-        )
-        self.session.add(article)
-        self.session.flush()
-
-        for idx, img_url in enumerate(parsed.images, start=1):
-            image_path = self._trim_to_column_length(
-                img_url,
-                ArticleImage.image_path,
+        try:
+            existing = (
+                self.session.query(Article.id)
+                .filter(Article.url == parsed.url)
+                .first()
             )
-            if not image_path:
+            if existing:
+                self._skipped += 1
+                return
+
+            tags_str = self._join_tags(parsed.tags)
+            title = self._trim_to_column_length(parsed.title, Article.title)
+            category_id = self._trim_to_column_length(parsed.category_id, Article.category_id)
+            category_name = self._trim_to_column_length(
+                parsed.category_name, Article.category_name
+            )
+            tags_str = self._trim_to_column_length(tags_str, Article.tags)
+            url = self._trim_to_column_length(parsed.url, Article.url)
+            article_name = self._trim_to_column_length(
+                self.site.resolved_article_name(), Article.article_name
+            )
+
+            article = Article(
+                title=title,
+                description=parsed.description,
+                content=parsed.content,
+                category_id=category_id,
+                category_name=category_name,
+                comments=None,
+                tags=tags_str,
+                url=url,
+                publish_date=parsed.publish_date,
+                article_name=article_name,
+            )
+            self.session.add(article)
+            self.session.flush()
+
+            for idx, img_url in enumerate(parsed.images, start=1):
+                image_path_value = img_url
+                image_status = "pending"
+                if self._download_images:
+                    downloaded = self._download_image(
+                        img_url,
+                        article_id=article.id,
+                        sequence_number=idx,
+                    )
+                    if downloaded:
+                        image_path_value = downloaded
+                        image_status = "downloaded"
+                    else:
+                        image_status = "failed"
+                        LOGGER.warning(
+                            "Failed to download image %s for article %s (seq=%s)",
+                            img_url,
+                            article.id,
+                            idx,
+                        )
+                image_path = self._trim_to_column_length(
+                    image_path_value,
+                    ArticleImage.image_path,
+                )
+                if not image_path:
+                    LOGGER.debug(
+                        "Skipping empty image URL for article %s (seq=%s)",
+                        article.id,
+                        idx,
+                    )
+                    continue
+                article.images.append(
+                    ArticleImage(
+                        image_path=image_path,
+                        status=image_status,
+                        sequence_number=idx,
+                    )
+                )
+
+            max_videos_per_article = 5
+
+            for idx, video_url in enumerate(parsed.videos[:max_videos_per_article], start=1):
+                video_path = self._trim_to_column_length(
+                    video_url,
+                    ArticleVideo.video_path,
+                )
+                if not video_path:
+                    LOGGER.debug(
+                        "Skipping empty video URL for article %s (seq=%s)",
+                        article.id,
+                        idx,
+                    )
+                    continue
+                article.videos.append(
+                    ArticleVideo(
+                        video_path=video_path,
+                        sequence_number=idx,
+                    )
+                )
+        except Exception:
+            self.session.rollback()
+            raise
+
+    def _download_image(
+        self,
+        image_url: str,
+        *,
+        article_id,
+        sequence_number: int,
+    ) -> Optional[str]:
+        if not self._images_folder:
+            return None
+        request_headers = {
+            "Referer": self.site.base_url,
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/122.0.0.0 Safari/537.36"
+            ),
+            "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
+            "Sec-Fetch-Dest": "image",
+            "Sec-Fetch-Mode": "no-cors",
+            "Sec-Fetch-Site": "cross-site",
+        }
+        origin = urlparse(self.site.base_url)
+        if origin.scheme and origin.netloc:
+            request_headers["Origin"] = f"{origin.scheme}://{origin.netloc}"
+            request_headers["Referer"] = f"{origin.scheme}://{origin.netloc}/"
+
+        content: Optional[bytes] = None
+        content_type: Optional[str] = None
+        last_exc: Optional[Exception] = None
+        fetch_candidates = [image_url]
+        parsed_image_url = urlparse(image_url)
+        if parsed_image_url.query:
+            fetch_candidates.append(
+                urlunparse(parsed_image_url._replace(query=""))
+            )
+
+        for candidate_url in fetch_candidates:
+            try:
+                content, content_type = self.client.get_bytes(
+                    candidate_url,
+                    headers=request_headers,
+                )
+                break
+            except requests.RequestException as exc:
+                last_exc = exc
                 LOGGER.debug(
-                    "Skipping empty image URL for article %s (seq=%s)",
-                    article.id,
-                    idx,
+                    "Failed to fetch image %s (candidate=%s): %s",
+                    image_url,
+                    candidate_url,
+                    exc,
                 )
-                continue
-            article.images.append(
-                ArticleImage(
-                    image_path=image_path,
-                    sequence_number=idx,
-                )
-            )
 
-        max_videos_per_article = 5
+        if content is None:
+            if last_exc is not None:
+                LOGGER.warning(
+                    "Image download failed for %s (article=%s, seq=%s): %s",
+                    image_url,
+                    article_id,
+                    sequence_number,
+                    last_exc,
+                )
+            return None
 
-        for idx, video_url in enumerate(parsed.videos[:max_videos_per_article], start=1):
-            video_path = self._trim_to_column_length(
-                video_url,
-                ArticleVideo.video_path,
-            )
-            if not video_path:
-                LOGGER.debug(
-                    "Skipping empty video URL for article %s (seq=%s)",
-                    article.id,
-                    idx,
-                )
-                continue
-            article.videos.append(
-                ArticleVideo(
-                    video_path=video_path,
-                    sequence_number=idx,
-                )
-            )
+        extension = _guess_image_extension(image_url, content_type)
+        filename = generate_image_path(article_id, sequence_number, extension=extension)
+        target_path = os.path.join(self._images_folder, filename)
+        try:
+            with open(target_path, "wb") as file:
+                file.write(content)
+        except OSError as exc:
+            LOGGER.debug("Failed to write image %s: %s", target_path, exc)
+            return None
+        return target_path
 
     @staticmethod
     def _join_tags(tags: Sequence[str]) -> Optional[str]:

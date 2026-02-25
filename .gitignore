@@ -3,3 +3,4 @@ pgdata/
 .venv/
 logs/
 __pycache__/
+images/

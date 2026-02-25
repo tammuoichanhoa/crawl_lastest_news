@@ -972,6 +972,7 @@ class ArticleCrawler:
                 article.images.append(
                     ArticleImage(
                         image_path=image_url,  # storing original URL; adjust if downloads are required
+                        status="pending",
                         sequence_number=idx,
                     )
                 )

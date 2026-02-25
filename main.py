@@ -6,6 +6,7 @@ import logging
 import os
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import date
 from typing import List, Sequence
 
 # Cho phép chạy trực tiếp file này:
@@ -22,6 +23,12 @@ if __name__ == "__main__" and (__package__ is None or __package__ == ""):
 from .config import iter_site_configs, list_site_keys
 from .site_crawler import NewsSiteCrawler
 from .db.session import session_scope
+
+
+def _build_daily_images_folder(*, base_dir: str = "/data/lastest_news_images") -> str:
+    today = date.today()
+    folder_name = f"{today.day}_{today.month}_{today.year}"
+    return os.path.join(base_dir, folder_name)
 
 
 def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
@@ -84,6 +91,19 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         "--output",
         help="Ghi kết quả JSON ra file (mặc định: in ra stdout).",
     )
+    parser.add_argument(
+        "--download",
+        action="store_true",
+        help="Tải ảnh về máy và lưu đường dẫn local vào DB (default: False).",
+    )
+    parser.add_argument(
+        "--images-folder",
+        default=None,
+        help=(
+            "Thư mục lưu ảnh khi bật --download. "
+            "Nếu bỏ trống sẽ dùng /data/lastest_news_images/<ngay_thang_nam>."
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -93,9 +113,16 @@ def _crawl_single_site(
     database_url: str | None,
     echo_sql: bool,
     max_articles_per_site: int | None,
+    download_images: bool,
+    images_folder: str,
 ):
     with session_scope(database_url=database_url, echo=echo_sql) as session:
-        crawler = NewsSiteCrawler(cfg, session=session)
+        crawler = NewsSiteCrawler(
+            cfg,
+            session=session,
+            download_images=download_images,
+            images_folder=images_folder,
+        )
         crawler.crawl(max_articles=max_articles_per_site)
         logging.info(
             "Site %s done. Stats: %s",
@@ -106,6 +133,9 @@ def _crawl_single_site(
 
 def main(argv: List[str] | None = None) -> int:
     args = _parse_args(argv)
+    resolved_images_folder = args.images_folder
+    if args.download and not resolved_images_folder:
+        resolved_images_folder = _build_daily_images_folder()
 
     logging.basicConfig(
         level=getattr(logging, args.log_level.upper(), logging.INFO),
@@ -146,6 +176,8 @@ def main(argv: List[str] | None = None) -> int:
         workers = 1
 
     logging.info("Starting crawl with %s worker(s)", workers)
+    if args.download:
+        logging.info("Images will be downloaded to: %s", resolved_images_folder)
 
     # Mỗi site chạy trong 1 thread riêng với 1 DB session riêng.
     with ThreadPoolExecutor(max_workers=workers) as executor:
@@ -156,6 +188,8 @@ def main(argv: List[str] | None = None) -> int:
                 database_url=args.database_url,
                 echo_sql=args.echo_sql,
                 max_articles_per_site=args.max_articles_per_site,
+                download_images=args.download,
+                images_folder=resolved_images_folder,
             ): cfg
             for cfg in site_configs
         }
