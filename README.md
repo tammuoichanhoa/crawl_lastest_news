@@ -48,6 +48,10 @@ Mặc định:
 - Database: `lastest_news`
 - Port host: `15432`
 
+## Backup database
+
+Xem hướng dẫn backup/verify/restore và cron tại `docs/backup.md`.
+
 ## Cách chạy
 
 Chạy dưới dạng module (khuyến nghị):

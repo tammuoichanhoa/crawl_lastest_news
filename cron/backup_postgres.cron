@@ -1,0 +1,7 @@
+# Ensure `BACKUP_ROOT`/`BACKUP_LOG_DIR` in `config/backup.env` matches the paths below.
+#
+# Daily at 02:10 UTC - adjust timezone/time as needed
+10 2 * * * cd /home/dev/BA_workspace/crawl_lastest_news && ENV_FILE=config/backup.env scripts/backup/postgres_backup.sh >> /data/backups/news_db/logs/cron_backup.log 2>&1
+
+# Weekly verify (Sunday 03:10 UTC)
+10 3 * * 0 cd /home/dev/BA_workspace/crawl_lastest_news && ENV_FILE=config/backup.env scripts/backup/postgres_verify.sh >> /data/backups/news_db/logs/cron_verify.log 2>&1

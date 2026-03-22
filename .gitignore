@@ -1,5 +1,10 @@
+.superpowers/
 .env
 pgdata/
+.worktrees/
 .venv/
 logs/
 __pycache__/
+
+# Backup configuration (contains server-specific paths and may contain secrets)
+config/backup.env
