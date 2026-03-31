@@ -83,6 +83,45 @@ Một số tham số quan trọng (xem thêm trong `main.py`):
   Bật log câu lệnh SQLAlchemy (phục vụ debug).
 - `--workers`  
   Số luồng chạy song song (mặc định = số site được chọn).
+- `--download`  
+  Tải ảnh về máy và lưu đường dẫn local vào bảng `article_images.image_path`.
+- `--images-folder`  
+  Thư mục lưu ảnh khi bật `--download` (mặc định: `/data/lastest_news_images/<ngay_thang_nam>`).
+
+## Audit ảnh (DB ↔ Disk)
+
+Khi chạy crawl với `--download`, chương trình sẽ lưu đường dẫn ảnh local vào DB (bảng `article_images`, cột `image_path`).
+Script `audit_images.py` dùng để đối chiếu:
+- File ảnh có thật trên disk trong `/data/lastest_news_images/<d_m_y>/`
+- Với các dòng DB `article_images.image_path` trỏ vào đúng thư mục đó
+
+Chạy audit theo ngày (khuyến nghị):
+
+```bash
+cd /home/dev/BA_workspace/crawl_lastest_news
+.venv/bin/python audit_images.py --date 2026-03-20 --status downloaded \
+  --database-url "postgresql+psycopg2://crawl:crawl@localhost:5432/news_db" \
+  --limit 50
+```
+
+Chạy audit N ngày gần nhất (bao gồm hôm nay):
+
+```bash
+cd /home/dev/BA_workspace/crawl_lastest_news
+.venv/bin/python audit_images.py --last-n-days 3 --status downloaded \
+  --database-url "postgresql+psycopg2://crawl:crawl@localhost:5432/news_db" \
+  --limit 50
+```
+
+Ghi chú:
+- `--limit` chỉ giới hạn số dòng `MISSING/EXTRA` in ra (sample), **không** giới hạn số bài/số ảnh được scan.
+- Có thể audit trực tiếp thư mục: `--images-folder /data/lastest_news_images/20_3_2026`.
+- Có thể dùng một trong ba cách chọn phạm vi audit: `--date`, `--images-folder`, hoặc `--last-n-days`.
+- Với `--last-n-days`, script audit từ hôm nay lùi về `N-1` ngày trước đó.
+- Nếu một ngày bị thiếu thư mục ảnh, script vẫn audit các ngày còn lại, in lỗi cho ngày đó và trả exit code `2`.
+- Exit code: `0` = khớp (không thiếu/không dư), `2` = có lệch (có `missing_on_disk` hoặc `extra_on_disk`).
+- Nếu muốn lấy đầy đủ báo cáo dạng JSON: thêm `--report-json /tmp/audit_2026-03-20.json`.
+- Khi dùng `--last-n-days` + `--report-json`, file JSON có thêm tổng hợp toàn kỳ và mảng `days` cho từng ngày.
 
 ## Log và theo dõi
 
